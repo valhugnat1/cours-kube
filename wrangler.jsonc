@@ -1,0 +1,20 @@
+// Configuration Cloudflare Workers (lue par Workers Builds à chaque déploiement).
+{
+  "name": "cours-kube",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-10-01",
+  "assets": {
+    // Site Astro construit par `npm run build`.
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "not_found_handling": "404-page"
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cours-kube",
+      // Database ID de la base D1 (Storage & Databases → D1 → cours-kube).
+      "database_id": "A_REMPLIR"
+    }
+  ]
+}

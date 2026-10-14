@@ -14,7 +14,7 @@ Tout est en français. Tutoiement.
 | `src/data/etapes.ts` | Liste des étapes et nom du dossier de chacune. |
 | `src/content.config.ts` | Schéma du frontmatter des leçons (validé au build). |
 | `scripts/check-lecons.mjs` | Contrôle qualité : longueur, schémas, quiz, syntaxe mermaid. |
-| `functions/api/progression.ts` | API de progression (Cloudflare Pages Function + D1). |
+| `worker/index.ts` | Worker Cloudflare : sert le site et l'API de progression (D1). |
 
 ## Générer des leçons
 
@@ -39,5 +39,5 @@ npm run dev          # aperçu local (sans synchro de progression)
 ## Git
 
 - Une branche par étape générée : `lecons/etape-NN`. Une PR par branche.
-- Chaque push déclenche un aperçu Cloudflare Pages (URL dans la PR) ; Hugo relit sur son téléphone puis merge.
-- Ne pas toucher à `functions/`, `wrangler.toml` ni au design (`src/styles`, `src/components`) dans une PR de contenu.
+- Chaque push déclenche un aperçu Cloudflare (URL dans la PR) ; Hugo relit sur son téléphone puis merge.
+- Ne pas toucher à `worker/`, `wrangler.jsonc` ni au design (`src/styles`, `src/components`) dans une PR de contenu.

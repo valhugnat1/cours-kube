@@ -1,10 +1,14 @@
+// Worker du site : sert les pages statiques (dist/) et l'API de progression.
+//
 // GET  /api/progression -> état de progression de l'utilisateur connecté
 // PUT  /api/progression -> fusionne l'état envoyé avec celui stocké, renvoie le résultat
 //
+// Les fichiers statiques sont servis avant le Worker : seules les URL qui ne
+// correspondent à aucun fichier arrivent ici.
 // L'utilisateur est identifié par Cloudflare Access (en-tête Cf-Access-Authenticated-User-Email).
 // Sans Access (dev local), tout le monde partage l'identité "local".
 
-interface Env { DB: D1Database }
+interface Env { DB: D1Database; ASSETS: Fetcher }
 
 type Etat = {
   v: 1;
@@ -47,10 +51,11 @@ const json = (d: unknown, status = 200) =>
     headers: { 'content-type': 'application/json', 'cache-control': 'no-store' },
   });
 
-export const onRequestGet: PagesFunction<Env> = async ({ request, env }) =>
-  json(await charger(env, qui(request)));
+async function lireProgression(request: Request, env: Env) {
+  return json(await charger(env, qui(request)));
+}
 
-export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
+async function ecrireProgression(request: Request, env: Env) {
   const corps = await request.text();
   if (corps.length > 500_000) return json({ erreur: 'état trop volumineux' }, 413);
   let recu: Etat;
@@ -62,4 +67,16 @@ export const onRequestPut: PagesFunction<Env> = async ({ request, env }) => {
      ON CONFLICT(email) DO UPDATE SET data = ?2, maj = ?3`,
   ).bind(email, JSON.stringify(fusion), Date.now()).run();
   return json(fusion);
-};
+}
+
+export default {
+  async fetch(request, env) {
+    const { pathname } = new URL(request.url);
+    if (pathname === '/api/progression') {
+      if (request.method === 'GET') return lireProgression(request, env);
+      if (request.method === 'PUT') return ecrireProgression(request, env);
+      return json({ erreur: 'méthode non autorisée' }, 405);
+    }
+    return env.ASSETS.fetch(request);
+  },
+} satisfies ExportedHandler<Env>;

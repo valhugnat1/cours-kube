@@ -6,6 +6,6 @@
   ],
   "exclude": [
     "dist",
-    "functions"
+    "worker"
   ]
 }
