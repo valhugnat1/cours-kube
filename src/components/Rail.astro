@@ -1,0 +1,57 @@
+---
+// Le rail : une ligne, une station par leçon. Les stations lues se remplissent (côté client).
+interface Station { id: string; titre: string; url: string; type: 'lecon' | 'lab' }
+interface Props { stations: Station[]; courante?: string; compact?: boolean }
+const { stations, courante, compact = false } = Astro.props;
+---
+{compact ? (
+  <ol class="rail-h" aria-label="Leçons de l'étape">
+    {stations.filter((s) => s.type === 'lecon').map((s) => (
+      <li>
+        <a href={s.url} class:list={['rail-station', { courante: s.id === courante }]} data-lecon={s.id} title={s.titre}>
+          <span class="visuellement-cache">{s.titre}</span>
+        </a>
+      </li>
+    ))}
+  </ol>
+) : (
+  <ol class="rail-v">
+    {stations.map((s) => (
+      <li class:list={[{ lab: s.type === 'lab' }]}>
+        <span class="rail-station" data-lecon={s.id} aria-hidden="true"></span>
+        <a href={s.url}>{s.titre}</a>
+        {s.type === 'lab' && <span class="etiquette">sur PC</span>}
+      </li>
+    ))}
+  </ol>
+)}
+<style>
+  .visuellement-cache { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
+  .rail-station { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--pin); background: var(--papier); flex: none; }
+  :global(.rail-station.lue) { background: var(--pin); }
+
+  .rail-h { list-style: none; padding: 0; margin: 0.25rem 0 0.75rem; display: flex; align-items: center; }
+  .rail-h li { display: flex; align-items: center; margin: 0; }
+  .rail-h li + li::before { content: ''; width: 18px; height: 2px; background: var(--pin); opacity: 0.5; }
+  .rail-h .courante { box-shadow: 0 0 0 3px var(--pin-clair); }
+
+  .rail-v { list-style: none; padding: 0; margin: 0.25rem 0 0; position: relative; }
+  .rail-v li { position: relative; display: flex; align-items: baseline; gap: 0.75rem; padding: 0.35rem 0; margin: 0; }
+  .rail-v li:not(:last-child)::after { content: ''; position: absolute; left: 6px; top: 1.35rem; bottom: -0.6rem; width: 2px; background: var(--pin); opacity: 0.35; }
+  .rail-v .rail-station { transform: translateY(2px); }
+  .rail-v a { color: var(--encre); text-decoration: none; }
+  .rail-v li.lab .rail-station { border-style: dashed; border-color: var(--encre-douce); }
+  .rail-v li.lab a { color: var(--encre-douce); }
+  .etiquette { font-size: 0.75rem; color: var(--encre-douce); border: 1px solid var(--trait); border-radius: 999px; padding: 0 0.5em; white-space: nowrap; }
+</style>
+<script>
+  import { lire } from '../scripts/progression';
+  const maj = () => {
+    const e = lire();
+    document.querySelectorAll<HTMLElement>('.rail-station[data-lecon]').forEach((el) => {
+      el.classList.toggle('lue', !!e.lues[el.dataset.lecon!]);
+    });
+  };
+  document.addEventListener('progression', maj);
+  maj();
+</script>

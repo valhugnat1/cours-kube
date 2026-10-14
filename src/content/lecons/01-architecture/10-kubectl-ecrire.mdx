@@ -1,0 +1,75 @@
+---
+titre: "kubectl : modifier sans casser"
+etape: 1
+ordre: 10
+objectif: "Prévisualiser un changement avec diff, et distinguer une correction ponctuelle d'une correction durable."
+commandes:
+  - c: "kubectl diff -f <fichier>"
+    d: "ce qui changerait, sans rien appliquer"
+  - c: "kubectl apply --dry-run=server -f <fichier>"
+    d: "faire valider par l'API server, sans écrire"
+  - c: "kubectl apply -f <fichier>"
+    d: "créer ou mettre à jour depuis un fichier"
+  - c: "kubectl get <type> <nom> -o jsonpath='{.status.podIP}'"
+    d: "extraire un seul champ d'un objet"
+quiz:
+  - q: "Sur le cluster d'un client, tu fais `kubectl scale deploy/api --replicas=3`. Au prochain `helm upgrade`, que se passe-t-il ?"
+    choix:
+      - "Les 3 réplicas sont conservés"
+      - "Le nombre de réplicas revient à la valeur du chart"
+      - "Helm échoue avec un conflit"
+    bonne: 1
+    explication: "Une commande impérative ne laisse aucune trace dans les fichiers versionnés. Le prochain déploiement réapplique la valeur du chart."
+  - q: "Quelle commande te montre exactement ce qu'un fichier changerait sur le cluster ?"
+    choix:
+      - "`kubectl apply --dry-run=client`"
+      - "`kubectl describe -f fichier.yaml`"
+      - "`kubectl diff -f fichier.yaml`"
+    bonne: 2
+    explication: "`diff` compare le fichier à l'objet réel et affiche les lignes qui changeraient."
+  - q: "Quelle est la différence entre `--dry-run=client` et `--dry-run=server` ?"
+    choix:
+      - "Aucune"
+      - "`server` fait valider par l'API server (schéma, admission), `client` vérifie seulement localement"
+      - "`server` applique vraiment mais peut être annulé"
+    bonne: 1
+    explication: "Le dry-run serveur passe par la validation et les contrôleurs d'admission sans rien écrire : il attrape beaucoup plus d'erreurs."
+---
+
+Lire est sans risque. Écrire sur le cluster d'un client, beaucoup moins. Deux habitudes changent tout : prévisualiser, et passer par des fichiers.
+
+## Prévisualiser avant d'appliquer
+
+```mermaid
+flowchart TD
+  F["Fichier modifié"] --> D["<b>kubectl diff</b><br/>quelles lignes changent ?"]
+  D --> V["<b>apply --dry-run=server</b><br/>l'API accepterait-elle ?"]
+  V --> A["kubectl apply"]
+  A --> R["<b>rollout status</b><br/>c'est bien passé ?"]
+```
+
+- `kubectl diff` compare ton fichier à l'objet réel et montre les lignes qui changeraient. Si tu ne t'attendais qu'à une ligne et que tu en vois vingt, arrête-toi.
+- `--dry-run=server` fait passer la requête par toute la validation de l'API server, contrôleurs d'admission compris, sans rien enregistrer.
+- `rollout status` attend la fin du déploiement, et `rollout undo` revient en arrière si besoin.
+
+## Impératif ou déclaratif
+
+`kubectl create deployment`, `kubectl scale`, `kubectl edit` sont **impératifs** : pratiques pour tester, mais ils ne laissent aucune trace dans un fichier.
+
+```mermaid
+flowchart TD
+  I["<b>kubectl scale --replicas=3</b><br/>correction ponctuelle"] --> H["Prochain helm upgrade"]
+  H --> X["<b>Retour à la valeur du chart :</b><br/>la correction disparaît"]
+  V["<b>values.yaml versionné</b><br/>correction durable"] --> H2["Prochain helm upgrade"]
+  H2 --> OK["La valeur tient"]
+```
+
+Chez un client, **tout passe par des fichiers versionnés** (Helm, étape 7). Une modification à la main sera écrasée au prochain déploiement, ou pire, elle restera et personne ne saura pourquoi le cluster ne correspond plus au dépôt. Une commande impérative n'est acceptable que comme correctif d'urgence, immédiatement reportée dans les fichiers. C'est la distinction « ponctuel ou durable » que l'étape 2 développe.
+
+## Extraire un champ
+
+`-o yaml` montre tout l'objet. Pour un seul champ, `-o jsonpath='…'` ou `-o json | jq`. Utile pour scripter, ou pour copier une valeur sans l'afficher en clair.
+
+<Retenir>
+diff, dry-run serveur, apply, rollout status. Une modification impérative est une rustine : la vraie correction va dans les fichiers versionnés.
+</Retenir>

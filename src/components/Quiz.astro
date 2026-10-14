@@ -1,0 +1,50 @@
+---
+// Monte un quiz côté client. Les questions sont passées en JSON.
+interface Props { questions: unknown[]; id: string; afficherSource?: boolean; melanger?: boolean; marquerLue?: string; controle?: string; max?: number; revoir?: boolean }
+const { questions, id, afficherSource = false, melanger = false, marquerLue, controle, max = 0, revoir = false } = Astro.props;
+---
+<div class="quiz" id={id} data-questions={JSON.stringify(questions)} data-source={afficherSource ? '1' : ''}
+  data-melanger={melanger ? '1' : ''} data-lue={marquerLue ?? ''} data-controle={controle ?? ''}
+  data-max={max} data-revoir={revoir ? '1' : ''}><slot /></div>
+<style>
+  .quiz { background: var(--surface); border: 1px solid var(--trait); border-radius: 14px; padding: 1rem; }
+  .quiz :global(.quiz-compteur) { color: var(--encre-douce); font-size: 0.88rem; margin: 0 0 0.3rem; }
+  .quiz :global(.quiz-question) { font-weight: 650; font-size: 1.08rem; }
+  .quiz :global(.quiz-choix) { display: grid; gap: 0.5rem; margin: 0.5rem 0 0.75rem; }
+  .quiz :global(.quiz-option) { font: inherit; text-align: left; color: var(--encre); background: var(--papier); border: 1.5px solid var(--trait); border-radius: var(--rayon); padding: 0.7rem 0.85rem; cursor: pointer; }
+  .quiz :global(.quiz-option:not([disabled]):active) { border-color: var(--pin); }
+  .quiz :global(.quiz-option.juste) { border-color: var(--pin); background: var(--pin-clair); }
+  .quiz :global(.quiz-option.faux) { border-color: var(--rouge); background: var(--rouge-clair); }
+  .quiz :global(.quiz-option[disabled]:not(.juste):not(.faux)) { opacity: 0.55; }
+  .quiz :global(.quiz-verdict) { font-weight: 650; margin-bottom: 0.3rem; }
+  .quiz :global(.quiz-verdict.juste) { color: var(--pin); }
+  .quiz :global(.quiz-verdict.faux) { color: var(--rouge); }
+</style>
+<script>
+  import { monterQuiz } from '../scripts/quiz';
+  import { marquerLue, enregistrerControle, lire, aRevoir } from '../scripts/progression';
+  const monter = (el: HTMLElement) => {
+    let qs: { id: string }[] = JSON.parse(el.dataset.questions!);
+    if (el.dataset.revoir) {
+      const ids = new Set(aRevoir(lire()));
+      qs = qs.filter((q) => ids.has(q.id));
+    }
+    if (el.dataset.melanger) qs = qs.map((q) => [Math.random(), q] as const).sort((a, b) => a[0] - b[0]).map(([, q]) => q);
+    const max = Number(el.dataset.max);
+    if (max > 0) qs = qs.slice(0, max);
+    if (!qs.length) return; // le contenu du slot (état vide) reste affiché
+    monterQuiz(el, qs as never, {
+      afficherSource: !!el.dataset.source,
+      onFini: (score, total) => {
+        if (el.dataset.lue) marquerLue(el.dataset.lue);
+        if (el.dataset.controle) enregistrerControle(el.dataset.controle, score, total);
+        el.dispatchEvent(new CustomEvent('quiz-fini', { bubbles: true, detail: { score, total } }));
+      },
+    });
+  };
+  document.querySelectorAll<HTMLElement>('.quiz[data-questions]').forEach((el) => {
+    // « À revoir » dépend de l'état synchronisé : on attend la première synchro.
+    if (el.dataset.revoir) document.addEventListener('progression', () => monter(el), { once: true });
+    else monter(el);
+  });
+</script>

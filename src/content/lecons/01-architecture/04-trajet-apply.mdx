@@ -1,0 +1,74 @@
+---
+titre: "Le trajet complet d'un kubectl apply"
+etape: 1
+ordre: 4
+objectif: "Retracer les cinq acteurs entre kubectl apply et un conteneur qui tourne, et s'en servir pour situer une panne."
+commandes:
+  - c: "kubectl apply -f deploy.yaml"
+    d: "décrire l'état voulu, créer ou mettre à jour"
+  - c: "kubectl get deploy,rs,pods"
+    d: "voir la chaîne Deployment, ReplicaSet, Pods d'un coup"
+  - c: "kubectl get events --sort-by=.lastTimestamp"
+    d: "les événements du namespace, du plus ancien au plus récent"
+quiz:
+  - q: "Un pod existe mais son champ `nodeName` est vide depuis dix minutes. À quelle étape du trajet ça bloque ?"
+    choix:
+      - "Au ReplicaSet controller"
+      - "Au scheduler"
+      - "Au kubelet"
+    bonne: 1
+    explication: "Le pod a été créé par le ReplicaSet, mais personne ne lui a attribué de nœud. C'est le rôle du scheduler : regarde les Events pour un `FailedScheduling`."
+  - q: "Le pod a un nœud mais reste en `ErrImagePull`. Qui a échoué ?"
+    choix:
+      - "Le kubelet, via le runtime, en tirant l'image"
+      - "Le Deployment controller"
+      - "L'API server, en validant le manifeste"
+    bonne: 0
+    explication: "Une fois le nœud choisi, c'est le kubelet qui demande l'image au runtime. Une image introuvable ou un registre refusé bloquent ici."
+  - q: "Qui crée l'objet ReplicaSet quand tu appliques un Deployment ?"
+    choix:
+      - "kubectl"
+      - "Le Deployment controller"
+      - "Le scheduler"
+    bonne: 1
+    explication: "kubectl n'écrit que le Deployment. Chaque objet suivant est créé par un contrôleur qui réagit au précédent."
+---
+
+C'est **le** schéma à avoir en tête. Tu appliques un Deployment qui demande deux réplicas. Voici ce qui se passe.
+
+```mermaid
+flowchart TD
+  K["kubectl apply"] --> A["<b>API server</b><br/>valide, autorise, écrit dans etcd"]
+  A --> D["<b>Deployment controller</b><br/>crée un ReplicaSet"]
+  D --> R["<b>ReplicaSet controller</b><br/>crée 2 Pods sans nœud"]
+  R --> S["<b>Scheduler</b><br/>écrit nodeName sur chaque Pod"]
+  S --> L["<b>kubelet du nœud</b><br/>fait lancer les conteneurs"]
+  L --> ST["<b>kubelet</b><br/>remonte le statut : Running, Ready"]
+```
+
+Chaque flèche est un acteur indépendant, qui ne connaît que l'API. Le Deployment controller ne sait rien du scheduler, le scheduler ne sait rien du kubelet. Chacun observe un type d'objet, réagit, et écrit un autre objet. **Personne ne pilote l'ensemble.**
+
+## Les cinq étapes, une par une
+
+1. **API server** : vérifie que le manifeste est valide et que tu as le droit, puis enregistre le Deployment.
+2. **Deployment controller** : voit un nouveau Deployment, crée un ReplicaSet avec `replicas: 2`.
+3. **ReplicaSet controller** : voit un ReplicaSet à 2 et 0 pod, crée deux objets Pod. Ils n'ont pas encore de nœud.
+4. **Scheduler** : voit deux pods sans `nodeName`, choisit un nœud pour chacun selon les ressources et les contraintes.
+5. **kubelet** : voit un pod assigné à son nœud, demande au runtime de tirer l'image et de lancer le conteneur, puis remonte le statut.
+
+## La même chaîne sert à diagnostiquer
+
+Quand un pod ne démarre pas, tu remontes ce trajet :
+
+| Question | Si non, ça bloque chez |
+|---|---|
+| Le pod existe-t-il ? | Deployment ou ReplicaSet controller (quota, droits) |
+| A-t-il un nœud ? | Scheduler (`FailedScheduling`) |
+| L'image est-elle tirée ? | kubelet et runtime (`ErrImagePull`) |
+| Le conteneur tient-il debout ? | L'application (`CrashLoopBackOff`) |
+
+Le champ `status` et les **Events** de `kubectl describe` te disent à quelle étape ça s'arrête.
+
+<Retenir>
+apply, API server, Deployment controller, ReplicaSet controller, scheduler, kubelet. Pour diagnostiquer un pod, trouve l'étape où la chaîne s'arrête.
+</Retenir>

@@ -1,0 +1,111 @@
+---
+titre: "Lab : déployer, casser, regarder se réparer"
+etape: 1
+ordre: 90
+type: lab
+duree: 10
+objectif: "Voir la réconciliation, une mise à jour progressive et un rollback sur ton cluster kind."
+---
+
+Sur ton PC, cluster `lab` de l'étape 0. Travaille dans un namespace dédié pour prendre l'habitude.
+
+## 1. Prépare le terrain
+
+```bash
+kubectl config current-context    # doit être kind-lab
+kubectl create namespace lab1
+kubens lab1
+```
+
+## 2. Écris et applique le manifeste
+
+Crée `web.yaml` avec un Deployment `web` (2 réplicas, `nginx:1.27`, label `app: web`, port 80) et un Service `web` qui le cible, séparés par `---`.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: web
+spec:
+  replicas: 2
+  selector:
+    matchLabels: { app: web }
+  template:
+    metadata:
+      labels: { app: web }
+    spec:
+      containers:
+        - name: web
+          image: nginx:1.27
+          ports: [{ containerPort: 80 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: web
+spec:
+  selector: { app: web }
+  ports: [{ port: 80, targetPort: 80 }]
+```
+
+```bash
+kubectl diff -f web.yaml          # tout est « à créer »
+kubectl apply -f web.yaml
+kubectl get deploy,rs,pods,svc    # la chaîne Deployment, ReplicaSet, Pods
+```
+
+## 3. Regarde la réconciliation
+
+Premier terminal : `kubectl get pods -w`. Second terminal :
+
+```bash
+kubectl delete pod -l app=web
+```
+
+Les pods passent en Terminating, deux nouveaux apparaissent aussitôt.
+
+## 4. Le Service suit
+
+```bash
+kubectl get pods -o wide          # nouvelles IPs
+kubectl port-forward svc/web 8080:80
+curl -i http://localhost:8080     # 200 OK
+```
+
+## 5. Mise à jour progressive et rollback
+
+Passe l'image en `nginx:1.26` dans `web.yaml` :
+
+```bash
+kubectl diff -f web.yaml          # une seule ligne change
+kubectl apply -f web.yaml
+kubectl rollout status deploy/web
+kubectl get rs                    # ancien à 0, nouveau à 2
+kubectl rollout undo deploy/web
+```
+
+## 6. Casse-le et lis les Events
+
+Mets `image: nginx:1.27-nexistepas`, applique, puis :
+
+```bash
+kubectl get pods                  # un ImagePullBackOff, les anciens toujours là
+kubectl describe pod <pod en erreur>
+```
+
+Les anciens pods sains n'ont pas été supprimés. Remets `nginx:1.27`.
+
+## 7. Explore la vérité de l'API
+
+```bash
+kubectl get deploy web -o yaml | less
+kubectl explain deployment.spec.strategy.rollingUpdate
+```
+
+Repère spec et status, et les valeurs par défaut ajoutées.
+
+## 8. Nettoie
+
+```bash
+kubectl delete namespace lab1     # tout son contenu disparaît avec lui
+```

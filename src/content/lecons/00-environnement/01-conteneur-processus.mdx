@@ -1,0 +1,81 @@
+---
+titre: "Un conteneur n'est qu'un processus"
+etape: 0
+ordre: 1
+objectif: "Expliquer ce qu'isolent les namespaces et les cgroups, et pourquoi un pod finit OOMKilled."
+commandes:
+  - c: "docker exec <conteneur> ps aux"
+    d: "voir les processus depuis l'intérieur d'un conteneur (il se croit seul)"
+  - c: "kubectl describe pod <pod>"
+    d: "la ligne « Last State » dit si le conteneur a été tué pour OOMKilled"
+quiz:
+  - q: "Un pod redémarre en boucle et `describe` affiche `Last State: Terminated, Reason: OOMKilled`. Qui a tué le processus ?"
+    choix:
+      - "Le noyau Linux, parce que le processus a dépassé la limite mémoire de son cgroup"
+      - "Le kubelet, parce que la liveness probe a échoué"
+      - "Le scheduler, parce que le nœud manquait de mémoire"
+    bonne: 0
+    explication: "`resources.limits.memory` devient une limite de cgroup. Quand elle est dépassée, c'est le noyau qui tue le processus, pas un composant Kubernetes."
+  - q: "Quel mécanisme décide de ce qu'un conteneur peut voir (ses processus, son réseau, ses fichiers) ?"
+    choix:
+      - "Les cgroups"
+      - "Les namespaces du noyau"
+      - "L'image Docker"
+    bonne: 1
+    explication: "Les namespaces règlent ce que le processus voit, les cgroups ce qu'il peut consommer."
+  - q: "Ton application ignore le signal d'arrêt envoyé à son PID 1. Que se passe-t-il quand Kubernetes supprime le pod ?"
+    choix:
+      - "Le pod reste en Terminating indéfiniment"
+      - "Kubernetes attend le délai de grâce, puis tue le processus brutalement"
+      - "Le conteneur est mis en pause et reprend au prochain démarrage"
+    bonne: 1
+    explication: "Kubernetes envoie SIGTERM au PID 1, attend `terminationGracePeriodSeconds` (30 s par défaut), puis envoie SIGKILL. Les requêtes en cours sont perdues."
+---
+
+On imagine souvent un conteneur comme une petite machine virtuelle. C'est faux, et cette image fausse rend plusieurs comportements de Kubernetes incompréhensibles.
+
+Un conteneur est un **processus Linux ordinaire**. Il tourne sur le noyau de la machine hôte, comme ton navigateur ou ton shell. Ce qui le rend « conteneur », ce sont deux mécanismes du noyau posés autour de lui.
+
+```mermaid
+flowchart TD
+  H["Noyau Linux de l'hôte"]
+  H --> N["<b>Namespaces</b><br/>ce que le processus VOIT"]
+  H --> C["<b>cgroups</b><br/>ce qu'il peut CONSOMMER"]
+  N --> P["<b>Processus de l'app</b><br/>(se croit PID 1)"]
+  C --> P
+```
+
+## Les namespaces : ce qu'il voit
+
+Le processus reçoit sa propre vue du monde : son arbre de processus (il se croit PID 1), sa propre interface réseau, son propre système de fichiers (celui de l'image), ses propres utilisateurs. Il ne voit pas le reste de la machine. Depuis l'hôte, en revanche, on le voit très bien : un `ps aux` sur l'hôte liste le processus nginx d'un conteneur comme n'importe quel autre.
+
+## Les cgroups : ce qu'il peut consommer
+
+Les cgroups plafonnent le CPU, la mémoire et les entrées-sorties. La différence de comportement est importante :
+
+- **CPU au-dessus de la limite** : le processus est ralenti (throttling). Il survit, il rame.
+- **Mémoire au-dessus de la limite** : le noyau le tue. Pas de négociation.
+
+C'est exactement ce que tu verras dans Kubernetes. Le champ `resources.limits.memory` d'un pod devient une limite de cgroup, et un pod `OOMKilled` n'est rien d'autre qu'un processus tué par le noyau parce qu'il a dépassé ce plafond. Aucun composant Kubernetes n'a « décidé » de le tuer.
+
+## Le PID 1 reçoit les signaux
+
+Le processus lancé par l'`ENTRYPOINT` de l'image est le PID 1 du conteneur. C'est lui qui reçoit le signal d'arrêt quand Kubernetes supprime un pod :
+
+```mermaid
+flowchart TD
+  A["Suppression du pod"] --> B["SIGTERM envoyé au PID 1"]
+  B --> C{"L'app s'arrête<br/>proprement ?"}
+  C -- oui --> D["Fin propre"]
+  C -- "non, après 30 s" --> E["SIGKILL : arrêt brutal"]
+```
+
+Si l'application ne gère pas `SIGTERM` (ou si un script shell en PID 1 ne le relaie pas), Kubernetes attend le délai de grâce puis coupe brutalement. Les requêtes en cours sont perdues : un détail qui compte sur un service d'inférence où une réponse peut prendre une minute.
+
+<Piege>
+Un script `entrypoint.sh` qui lance l'application sans `exec` garde le shell en PID 1. Le shell reçoit `SIGTERM` et ne le transmet pas : chaque arrêt de pod devient un arrêt brutal après 30 secondes.
+</Piege>
+
+<Retenir>
+Conteneur = processus + namespaces (ce qu'il voit) + cgroups (ce qu'il consomme). OOMKilled = le noyau a tué un processus qui dépassait sa limite mémoire.
+</Retenir>

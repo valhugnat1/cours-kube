@@ -1,0 +1,78 @@
+---
+titre: "Le réseau minimum vital"
+etape: 0
+ordre: 3
+objectif: "Reconnaître le bug 127.0.0.1, situer la terminaison TLS et partir d'un code HTTP pour diagnostiquer."
+commandes:
+  - c: "curl -i https://<hôte>/"
+    d: "afficher le code HTTP et les en-têtes de réponse"
+  - c: "curl -v https://<hôte>/"
+    d: "voir toute la négociation TLS et la requête"
+  - c: "openssl s_client -connect <hôte>:443 -servername <hôte>"
+    d: "voir le certificat réellement servi et sa chaîne"
+  - c: "nslookup <nom>"
+    d: "résoudre un nom DNS, disponible presque partout"
+quiz:
+  - q: "Une app tourne dans un conteneur et répond quand tu fais un curl depuis l'intérieur, mais elle est injoignable depuis un autre pod. Cause la plus probable ?"
+    choix:
+      - "Elle écoute sur `127.0.0.1` au lieu de `0.0.0.0`"
+      - "Le DNS du cluster est en panne"
+      - "Le certificat TLS a expiré"
+    bonne: 0
+    explication: "`127.0.0.1` n'accepte que les connexions venant du conteneur lui-même. `0.0.0.0` écoute sur toutes les interfaces."
+  - q: "Chez un client, le TLS est terminé à la gateway d'entrée. Que se passe-t-il entre la gateway et les pods ?"
+    choix:
+      - "Le trafic est rechiffré automatiquement par Kubernetes"
+      - "Le trafic circule en HTTP clair dans le cluster"
+      - "Le trafic est bloqué tant qu'un certificat n'est pas monté dans chaque pod"
+    bonne: 1
+    explication: "La terminaison TLS est l'endroit où le chiffrement s'arrête. Derrière, les pods se parlent en clair, d'où certains avertissements « contexte non sécurisé » qui sont des faux positifs."
+  - q: "Un curl renvoie `unknown authority`. Qu'est-ce qui manque le plus souvent ?"
+    choix:
+      - "Un maillon de la chaîne de confiance (CA intermédiaire ou racine)"
+      - "Le port 443 sur le pare-feu"
+      - "Un enregistrement DNS"
+    bonne: 0
+    explication: "Le client ne parvient pas à relier le certificat à une autorité qu'il connaît : il manque une CA intermédiaire servie, ou la CA du client n'est pas installée."
+---
+
+Tu n'as pas besoin d'être ingénieur réseau. Il te faut quatre réflexes, qui reviennent dans presque chaque incident.
+
+## Écouter sur la bonne adresse
+
+Un service écoute sur une adresse et un port. `127.0.0.1` (localhost) n'est joignable que depuis l'intérieur du conteneur. `0.0.0.0` veut dire « toutes les interfaces ».
+
+```mermaid
+flowchart TD
+  X["Autre pod"] --> I{{"Interface réseau du pod"}}
+  I -->|"app sur 0.0.0.0:8000"| OK["Connexion acceptée"]
+  I -->|"app sur 127.0.0.1:8000"| KO["Connexion refusée"]
+```
+
+C'est le bug numéro un du débutant : « ça marche en local, pas dans le cluster ». Le serveur de dev écoute sur localhost par défaut, il faut lui dire `--host 0.0.0.0`.
+
+## Le DNS traduit les noms
+
+Le DNS traduit un nom en adresse IP. Dans Kubernetes, un service interne s'appelle par exemple `postgres.data.svc.cluster.local`, et c'est CoreDNS, à l'intérieur du cluster, qui répond. `nslookup` est disponible presque partout, `dig` donne plus de détails.
+
+## TLS : où le chiffrement s'arrête
+
+Un certificat lie une identité (un nom de domaine) à une clé publique, signée par une autorité de confiance. Trois idées suffisent :
+
+- **La chaîne de confiance** : certificat, puis CA intermédiaire, puis CA racine. Un maillon manquant donne une erreur `unknown authority`.
+- **La terminaison TLS** : l'endroit où le chiffrement s'arrête. Chez un client, c'est souvent la gateway d'entrée. Derrière, les pods se parlent en HTTP clair.
+- **Voir ce qui est servi** : `curl -v` montre la négociation, `openssl s_client` montre le certificat exact.
+
+```mermaid
+flowchart TD
+  N["Navigateur"] -->|"HTTPS chiffré"| G["<b>Gateway d'entrée</b><br/>termine le TLS"]
+  G -->|"HTTP clair"| P["Pods de la plateforme"]
+```
+
+## Partir d'un code HTTP
+
+Un diagnostic commence par un code, jamais par « ça marche pas ». `curl -i` affiche le statut : 401, 403, 404, 502, 504 racontent chacun une histoire différente. L'étape 20 en fait une carte complète.
+
+<Retenir>
+Écoute sur `0.0.0.0`, pas `127.0.0.1`. Le TLS s'arrête à la gateway, derrière c'est du clair. Tout diagnostic part d'un code HTTP.
+</Retenir>

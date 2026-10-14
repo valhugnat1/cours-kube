@@ -1,0 +1,73 @@
+---
+titre: "Pod, ReplicaSet, Deployment"
+etape: 1
+ordre: 6
+objectif: "Savoir pourquoi on ne crée jamais un pod à la main et comment un Deployment permet le rollback."
+commandes:
+  - c: "kubectl rollout status deploy/<nom>"
+    d: "attendre la fin d'une mise à jour progressive"
+  - c: "kubectl rollout history deploy/<nom>"
+    d: "les révisions successives d'un Deployment"
+  - c: "kubectl rollout undo deploy/<nom>"
+    d: "revenir à la révision précédente"
+quiz:
+  - q: "Tu changes l'image d'un Deployment. Que fait-il ?"
+    choix:
+      - "Il modifie l'image des pods existants en place"
+      - "Il crée un nouveau ReplicaSet, le monte progressivement et descend l'ancien"
+      - "Il supprime tous les pods puis recrée les nouveaux"
+    bonne: 1
+    explication: "C'est la mise à jour progressive. L'ancien ReplicaSet est conservé à 0, ce qui permet le rollback."
+  - q: "Pendant une mise à jour, la nouvelle image n'existe pas. Que deviennent les anciens pods ?"
+    choix:
+      - "Ils sont supprimés, l'application est coupée"
+      - "Ils restent en place tant que les nouveaux ne sont pas prêts"
+      - "Ils redémarrent avec la nouvelle image"
+    bonne: 1
+    explication: "La mise à jour progressive ne retire les anciens pods qu'au fur et à mesure que les nouveaux deviennent Ready."
+  - q: "Deux conteneurs du même pod veulent se parler. Quelle adresse utilisent-ils ?"
+    choix:
+      - "`localhost`, ils partagent la même IP"
+      - "Le nom du Service"
+      - "L'IP du nœud"
+    bonne: 0
+    explication: "Les conteneurs d'un pod partagent le réseau : même IP, ils se joignent par localhost sur des ports différents."
+---
+
+Trois objets s'emboîtent. Tu en manipules un seul, le Deployment, mais il faut comprendre les deux autres pour lire ce que tu vois dans le cluster.
+
+```mermaid
+flowchart TD
+  D["<b>Deployment web</b><br/>tu l'écris"] --> RS2["<b>ReplicaSet web-7d9f</b><br/>révision actuelle, 2 réplicas"]
+  D -.-> RS1["<b>ReplicaSet web-5c4b</b><br/>ancienne révision, 0 réplica"]
+  RS2 --> P1["Pod web-7d9f-abc"]
+  RS2 --> P2["Pod web-7d9f-xyz"]
+```
+
+## Pod : la plus petite unité, et elle est mortelle
+
+Un pod, c'est un ou plusieurs conteneurs qui partagent la même IP, le même réseau et les mêmes volumes. Dans la grande majorité des cas : un conteneur principal, parfois un sidecar ou des init containers.
+
+Un pod est **mortel**. Son IP est éphémère, il ne se déplace jamais d'un nœud à l'autre, et quand il meurt, on en crée un autre, avec un autre nom et une autre IP. **Tu ne crées presque jamais un pod à la main** : personne ne le recréerait s'il disparaissait.
+
+## ReplicaSet : maintenir N copies
+
+Il garantit qu'il existe N pods identiques. Tu ne le manipules pas directement. Son nom porte un suffixe de hash (`web-7d9f`), que tu retrouves dans le nom de ses pods.
+
+## Deployment : ce que tu utilises vraiment
+
+Pour une application sans état, c'est l'objet de référence. Quand tu changes l'image, le Deployment ne modifie pas les pods existants : il crée un **nouveau ReplicaSet**, le monte progressivement, et descend l'ancien.
+
+```mermaid
+flowchart TD
+  A["Ancien RS : 2 pods"] --> B["<b>Nouveau RS : 1 pod Ready</b><br/>Ancien RS : 1 pod"]
+  B --> C["<b>Nouveau RS : 2 pods</b><br/>Ancien RS : 0, conservé"]
+```
+
+Deux bénéfices. Si la nouvelle version ne démarre pas, les anciens pods restent là et servent toujours. Et l'ancien ReplicaSet, conservé à zéro, permet un **rollback** immédiat.
+
+Le lien entre un Deployment et ses pods, c'est son `selector` : les labels de pods qu'il revendique. Le `template` contient le modèle de pod, dont les labels doivent correspondre au selector.
+
+<Retenir>
+On écrit un Deployment, jamais un pod seul. Une mise à jour = un nouveau ReplicaSet monté progressivement ; l'ancien reste à 0 pour le rollback.
+</Retenir>

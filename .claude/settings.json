@@ -1,0 +1,11 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "[ -d node_modules ] || npm ci --no-audit --no-fund --loglevel=error" }
+        ]
+      }
+    ]
+  }
+}

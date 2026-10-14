@@ -1,0 +1,76 @@
+---
+titre: "Tes outils, et lequel s'exécute vraiment"
+etape: 0
+ordre: 5
+objectif: "Connaître le rôle de chaque outil et savoir détecter un doublon dans le PATH avant de casser son shell."
+commandes:
+  - c: "type -a kubectl"
+    d: "lister toutes les copies de kubectl trouvées, dans l'ordre du PATH"
+  - c: "echo $PATH | tr ':' '\\n'"
+    d: "afficher le PATH, un dossier par ligne"
+  - c: "kubectl version"
+    d: "versions du client et du cluster : écart d'une mineure au maximum"
+  - c: "kubectx / kubens"
+    d: "changer de cluster / de namespace sans se tromper"
+quiz:
+  - q: "`type -a kubectl` renvoie deux chemins. Lequel est utilisé ?"
+    choix:
+      - "Le premier de la liste"
+      - "Le plus récent"
+      - "Celui de Homebrew, prioritaire par défaut"
+    bonne: 0
+    explication: "Le shell prend la première occurrence dans l'ordre du PATH. Les autres sont masquées, d'où les « ça marchait hier »."
+  - q: "Ton cluster est en 1.30. Quelles versions de `kubectl` sont supportées ?"
+    choix:
+      - "Uniquement 1.30"
+      - "De 1.29 à 1.31"
+      - "N'importe quelle 1.x"
+    bonne: 1
+    explication: "kubectl est supporté à une version mineure près du cluster, dans les deux sens."
+  - q: "Une doc parle d'installer Tiller avant d'utiliser Helm. Qu'en conclus-tu ?"
+    choix:
+      - "Il faut l'installer dans kube-system"
+      - "La doc date de Helm 2, elle est périmée"
+      - "C'est nécessaire uniquement sur OpenShift"
+    bonne: 1
+    explication: "Tiller était le composant serveur de Helm 2. Helm 3 n'en a plus besoin."
+---
+
+Avant d'écrire la moindre ligne de YAML, il faut une boîte à outils propre. La plupart des « ça marchait hier » viennent d'un outil installé deux fois.
+
+## Qui fait quoi
+
+| Outil | Rôle |
+|---|---|
+| `kubectl` | parler à l'API Kubernetes |
+| `helm` | installer et gérer des charts |
+| `k9s` | explorer un cluster en mode texte (étape 19) |
+| `kind` | créer un cluster local dans Docker |
+| `gcloud` + plugin GKE | accéder aux clusters GCP |
+| `uv` | gérer Python sans casser le système |
+| `yq`, `jq` | lire et transformer du YAML, du JSON |
+| `kubectx`, `kubens` | changer de cluster, de namespace |
+
+## Regarde avant de toucher au shell
+
+Le réflexe à prendre : **avant d'ajouter une ligne dans ton `.zshrc`, regarde ce qui existe déjà.**
+
+```mermaid
+flowchart TD
+  A["Tu tapes kubectl"] --> B["<b>Le shell parcourt le PATH</b><br/>dans l'ordre"]
+  B --> C["<b>/opt/homebrew/bin/kubectl</b><br/>trouvé en premier : utilisé"]
+  B -.-> D["<b>/usr/local/bin/kubectl</b><br/>de Docker Desktop : ignoré"]
+```
+
+`type -a kubectl` liste toutes les copies trouvées. S'il y en a deux (Homebrew, Docker Desktop, gcloud…), c'est la première qui gagne, et ce n'est pas forcément celle que tu viens d'installer. Résous le doublon plutôt que d'empiler des `export PATH=…` à l'aveugle.
+
+## Les versions qui comptent
+
+- **kubectl** doit rester à une version mineure près du cluster. `kubectl version` affiche les deux.
+- **Helm 3 uniquement.** Une doc qui parle de Tiller date de Helm 2 : ignore-la.
+
+Chez les clients, tu jongleras entre plusieurs clusters. `kubectx` et `kubens` rendent le changement de contexte explicite, et la plupart des prompts de shell peuvent afficher le contexte actif en permanence. C'est la meilleure protection contre une commande lancée sur le mauvais cluster.
+
+<Retenir>
+`type -a` avant tout `export PATH`. kubectl à une mineure près du cluster. Helm 3, jamais Tiller.
+</Retenir>

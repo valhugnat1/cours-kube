@@ -1,0 +1,88 @@
+---
+titre: "YAML sans se faire piéger"
+etape: 0
+ordre: 4
+objectif: "Lire une liste d'objets YAML sans hésiter et savoir quand une valeur doit être entre guillemets."
+commandes:
+  - c: "kubectl apply --dry-run=client -f fichier.yaml"
+    d: "valider un manifeste sans rien appliquer"
+  - c: "yq '.spec.template' fichier.yaml"
+    d: "extraire une partie d'un fichier YAML"
+quiz:
+  - q: "Dans un ConfigMap, tu écris `VERSION: 1.10`. Que reçoit l'application ?"
+    choix:
+      - "La chaîne `1.10`"
+      - "Le nombre `1.1`, voire une erreur de validation"
+      - "La chaîne `\"1.10\"` avec les guillemets"
+    bonne: 1
+    explication: "Sans guillemets, `1.10` est lu comme un nombre décimal. Dans un ConfigMap toutes les valeurs doivent être des chaînes : écris `\"1.10\"`."
+  - q: "Quelle valeur YAML reste une chaîne sans guillemets ?"
+    choix:
+      - "`yes`"
+      - "`off`"
+      - "`info`"
+    bonne: 2
+    explication: "`yes`, `no`, `on`, `off`, `true`, `false` deviennent des booléens. `info` reste une chaîne."
+  - q: "Tu dois mettre un certificat PEM sur plusieurs lignes dans une valeur. Quel indicateur utilises-tu ?"
+    choix:
+      - "`|` qui conserve les retours à la ligne"
+      - "`>` qui replie les lignes en une seule"
+      - "`---` qui sépare les documents"
+    bonne: 0
+    explication: "`|` garde chaque retour à la ligne, indispensable pour un certificat ou un script."
+---
+
+Tu vas lire et écrire du YAML toute la journée. La syntaxe est simple, mais trois pièges reviennent sans cesse.
+
+## La structure en une image
+
+Une liste se note avec `-`, un dictionnaire avec `clé: valeur`. Une liste d'objets mélange les deux, et c'est la forme la plus courante dans Kubernetes :
+
+```yaml
+env:              # dictionnaire : la clé env…
+  - name: LOG_LEVEL   # …contient une liste ; chaque « - » ouvre un objet
+    value: info
+  - name: WORKERS
+    value: "4"
+```
+
+```mermaid
+flowchart TD
+  E["env (clé)"] --> L["liste"]
+  L --> O1["<b>objet 1</b><br/>name, value"]
+  L --> O2["<b>objet 2</b><br/>name, value"]
+```
+
+L'indentation se fait en **espaces**, jamais en tabulations, deux par niveau par convention. Un décalage d'un seul espace change le sens du document.
+
+## Le piège des types
+
+YAML devine le type des valeurs, et devine parfois mal :
+
+| Tu écris | YAML comprend |
+|---|---|
+| `yes`, `no`, `on`, `off` | un booléen |
+| `1.10` | le nombre 1.1 |
+| `012` | potentiellement un nombre octal |
+| `"1.10"` | la chaîne 1.10 |
+
+Règle simple : une valeur qui doit rester une chaîne se met entre guillemets. Dans un **ConfigMap**, toutes les valeurs doivent être des chaînes, donc les nombres aussi : `WORKERS: "4"`.
+
+## Texte sur plusieurs lignes
+
+- `|` conserve les retours à la ligne : scripts, certificats.
+- `>` replie le texte en une seule ligne : longues descriptions.
+
+## Plusieurs documents
+
+`---` sépare plusieurs documents dans un même fichier. Un manifeste généré par Helm en contient souvent des dizaines, un par objet.
+
+Le templating Go de Helm viendra à l'étape 7. Inutile de l'aborder avant d'être à l'aise avec le YAML brut : la moitié des erreurs Helm sont des erreurs YAML déguisées.
+
+<Piege>
+Un tag d'image comme `tag: 1.10` sans guillemets devient `1.1`, et le pod part en ImagePullBackOff sur une image qui n'existe pas.
+</Piege>
+
+<Retenir>
+Espaces, jamais de tabulations. Dans le doute, des guillemets. Dans un ConfigMap, toujours des guillemets.
+</Retenir>

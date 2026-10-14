@@ -1,0 +1,68 @@
+---
+titre: "Les nœuds : qui exécute"
+etape: 1
+ordre: 3
+objectif: "Savoir ce que font le kubelet, le runtime et kube-proxy sur chaque nœud."
+commandes:
+  - c: "kubectl get nodes -o wide"
+    d: "nœuds, versions, runtime et IPs"
+  - c: "kubectl describe node <nœud>"
+    d: "capacité, pods en cours, conditions (pression mémoire, disque…)"
+quiz:
+  - q: "Quel composant lance réellement les conteneurs d'un pod sur un nœud ?"
+    choix:
+      - "Le kubelet, en demandant au runtime (containerd) de le faire"
+      - "Le scheduler"
+      - "kube-proxy"
+    bonne: 0
+    explication: "Le scheduler choisit le nœud, le kubelet de ce nœud demande au runtime de tirer l'image et de créer le conteneur."
+  - q: "Un client dit « on n'a pas Docker sur nos nœuds ». Tes images vont-elles tourner ?"
+    choix:
+      - "Non, il faut convertir les images"
+      - "Oui, containerd ou CRI-O exécutent les mêmes images"
+      - "Seulement si on installe Docker sur chaque nœud"
+    bonne: 1
+    explication: "Docker n'est plus le runtime de Kubernetes depuis la 1.24. Les images au format OCI restent les mêmes."
+  - q: "À quoi sert kube-proxy ?"
+    choix:
+      - "À faire passer le trafic sortant par le proxy HTTP du client"
+      - "À écrire les règles réseau qui redirigent l'IP d'un Service vers ses pods"
+      - "À relayer les commandes kubectl vers les nœuds"
+    bonne: 1
+    explication: "Il programme iptables ou IPVS sur chaque nœud. Certains CNI comme Cilium le remplacent."
+---
+
+Un **nœud** est une machine, virtuelle ou physique, qui fait tourner des pods. Chacun porte trois composants.
+
+```mermaid
+flowchart TD
+  API["API server"] -->|"pods assignés à ce nœud"| KL
+  subgraph N["Un nœud"]
+    KL["<b>kubelet</b><br/>l'agent"] --> RT["<b>runtime</b><br/>containerd ou CRI-O"]
+    RT --> P1["conteneurs"]
+    KP["<b>kube-proxy</b><br/>règles réseau"]
+  end
+  KL -->|"état des pods"| API
+```
+
+## Le kubelet, l'agent du nœud
+
+Le kubelet surveille l'API server. Pour chaque pod assigné à **son** nœud, il demande au runtime de lancer les conteneurs, exécute les probes (liveness, readiness), puis remonte l'état du pod.
+
+Il ne prend aucune décision d'orchestration. Il ne choisit pas où placer un pod, il ne décide pas d'en créer un nouveau. Il exécute ce que l'API dit pour son nœud. Si l'API server devient injoignable, le kubelet continue de faire tourner ce qu'il a déjà, mais ne reçoit plus rien de nouveau.
+
+## Le runtime
+
+containerd, le plus courant, ou CRI-O (souvent sur OpenShift). Il télécharge les images et crée les conteneurs. **Docker n'est plus utilisé comme runtime depuis Kubernetes 1.24**, mais les images restent les mêmes : un client qui n'a « pas Docker » fera tourner tes images sans problème.
+
+## kube-proxy
+
+Il configure les règles réseau du nœud (iptables ou IPVS) pour que l'IP stable d'un Service redirige vers les pods qui sont derrière. Certains CNI, comme Cilium, le remplacent entièrement. L'étape 4 détaille ce qu'il fait vraiment, et surtout ce qu'il ne fait pas.
+
+## Ce qui en découle pour le diagnostic
+
+Un problème qui ne touche qu'**un** nœud (pods en échec seulement là, images qui ne se tirent pas, pression disque) se lit dans `kubectl describe node`, section Conditions. Un problème qui touche tous les nœuds se cherche plutôt côté control plane ou configuration.
+
+<Retenir>
+Le kubelet exécute, il ne décide pas. Le runtime tire et lance les images. kube-proxy fait marcher les Services. Docker n'est plus le runtime, les images restent compatibles.
+</Retenir>

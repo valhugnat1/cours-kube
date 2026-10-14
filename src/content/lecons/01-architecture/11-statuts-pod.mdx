@@ -1,0 +1,83 @@
+---
+titre: "Lire le statut d'un pod"
+etape: 1
+ordre: 11
+objectif: "Reconnaître les statuts courants d'un pod et savoir où regarder pour chacun."
+commandes:
+  - c: "kubectl get pods"
+    d: "colonnes STATUS, READY, RESTARTS et AGE"
+  - c: "kubectl describe pod <pod>"
+    d: "Events et Last State (raison du dernier arrêt)"
+  - c: "kubectl logs <pod> --previous"
+    d: "logs de l'instance qui a crashé"
+quiz:
+  - q: "Un pod est `Running` mais affiche `READY 0/1`. Qu'est-ce que ça signifie ?"
+    choix:
+      - "Le conteneur tourne, mais sa readiness probe échoue : il ne reçoit pas de trafic"
+      - "Le pod est en train de s'arrêter"
+      - "L'image est en cours de téléchargement"
+    bonne: 0
+    explication: "Running dit que le conteneur tourne, READY dit s'il est prêt à recevoir du trafic. Un Service ignore les pods non Ready."
+  - q: "Un pod est `Pending` depuis cinq minutes. Où regardes-tu ?"
+    choix:
+      - "`kubectl logs`"
+      - "`kubectl describe pod`, section Events"
+      - "Les logs de l'ingress"
+    bonne: 1
+    explication: "Un pod Pending n'a pas encore de conteneur qui tourne, donc pas de logs. Les Events disent pourquoi : ressources insuffisantes, volume manquant…"
+  - q: "Un pod est `Running 1/1` avec 47 restarts en deux heures. Est-il sain ?"
+    choix:
+      - "Oui, il est Running et Ready"
+      - "Non, il crashe régulièrement et redémarre"
+      - "Oui, les restarts sont normaux sous charge"
+    bonne: 1
+    explication: "La colonne RESTARTS révèle un crash répété. Regarde `describe` (Last State) et `logs --previous`."
+  - q: "Un pod reste en `Terminating` depuis dix minutes. Cause fréquente ?"
+    choix:
+      - "Un finalizer qui attend une action qui ne vient pas"
+      - "Une image trop lourde"
+      - "Un manque de CPU"
+    bonne: 0
+    explication: "Un finalizer bloque la suppression tant que son contrôleur n'a pas fait son nettoyage. L'étape 2 y revient."
+---
+
+La colonne `STATUS` de `kubectl get pods` condense beaucoup d'information en un mot. Il faut savoir lire ces mots, et savoir où regarder pour chacun.
+
+```mermaid
+flowchart TD
+  P["<b>Pending</b><br/>pas encore placé"] --> CC["<b>ContainerCreating</b><br/>volumes, réseau, image"]
+  CC --> I["<b>Init:0/1</b><br/>init container en cours"]
+  I --> R["<b>Running</b><br/>au moins un conteneur tourne"]
+  CC -.-> IP["ImagePullBackOff"]
+  R -.-> CL["CrashLoopBackOff"]
+```
+
+## Les statuts à reconnaître
+
+| Statut | Signification | Où regarder |
+|---|---|---|
+| `Pending` | Pas encore placé, ou image en téléchargement | `describe`, Events (`FailedScheduling`) |
+| `ContainerCreating` | Le kubelet prépare le conteneur | Normal quelques secondes, sinon `describe` |
+| `Init:0/1` | Un init container tourne encore | `logs -c <init>` |
+| `Running` | Au moins un conteneur tourne | Vérifie aussi READY |
+| `CrashLoopBackOff` | Démarre, meurt, réessaie de plus en plus tard | `logs --previous` |
+| `ImagePullBackOff` | Image introuvable ou registre refusé | `describe`, Events |
+| `OOMKilled` | Tué pour dépassement mémoire (dans Last State) | Limite ou application |
+| `Completed` | Un Job a terminé | Normal |
+| `Terminating` | En cours de suppression | Bloqué : souvent un finalizer |
+
+## Les trois autres colonnes
+
+- **READY** (`1/1`) : combien de conteneurs sont prêts à recevoir du trafic. `Running 0/1` veut dire que le conteneur tourne mais que sa readiness probe échoue, donc qu'aucun Service ne lui envoie de requêtes.
+- **RESTARTS** : un pod `Running 1/1` avec 47 redémarrages n'est pas sain. Il crashe et repart en boucle.
+- **AGE** : un pod de 30 secondes dans un Deployment qui tourne depuis des jours a été recréé. Pourquoi ?
+
+## Le bon outil selon le statut
+
+Si le conteneur n'a jamais démarré (Pending, ImagePullBackOff, ContainerCreating qui dure), il n'y a **pas de logs** : la réponse est dans les Events de `describe`. S'il a démarré puis est mort (CrashLoopBackOff, restarts), la réponse est dans `logs --previous`.
+
+La méthode complète de diagnostic est à l'étape 20. Ici, il s'agit de reconnaître les mots.
+
+<Retenir>
+Jamais démarré : describe et ses Events. Démarré puis mort : logs --previous. Running ne veut pas dire sain : regarde READY et RESTARTS.
+</Retenir>

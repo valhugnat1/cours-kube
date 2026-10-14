@@ -1,0 +1,32 @@
+---
+import Base from '../../layouts/Base.astro';
+import Quiz from '../../components/Quiz.astro';
+import { parties } from '../../data/etapes';
+import { etapeParNumero } from '../../data/etapes';
+import { toutesLesLecons, questionsDe, type Lecon } from '../../data/lecons';
+
+export async function getStaticPaths() {
+  const lecons = await toutesLesLecons();
+  return parties.map((p) => ({
+    params: { partie: p.id.toLowerCase() },
+    props: { partie: p, lecons: lecons.filter((l) => etapeParNumero(l.data.etape).partie === p.id) },
+  }));
+}
+const { partie, lecons } = Astro.props as { partie: (typeof parties)[number]; lecons: Lecon[] };
+const questions = lecons.flatMap(questionsDe);
+const n = Math.min(12, questions.length);
+---
+<Base titre={`Contrôle ${partie.id}`} retour={{ href: '/', texte: 'Parcours' }}>
+  <h1>Contrôle de la partie {partie.id}</h1>
+  <p class="discret">{partie.titre}. {n} questions tirées au hasard parmi les {questions.length} des leçons déjà générées. Refais-le autant que tu veux : le tirage change.</p>
+  <Quiz id="quiz-controle" questions={questions} melanger afficherSource max={n} controle={partie.id}>
+    <p>Pas encore de leçons dans cette partie.</p>
+  </Quiz>
+  <a class="bouton secondaire refaire" href="" hidden data-refaire>Refaire un tirage</a>
+</Base>
+<style>.refaire { margin-top: 1rem; }</style>
+<script>
+  document.addEventListener('quiz-fini', () => {
+    (document.querySelector('[data-refaire]') as HTMLElement).hidden = false;
+  });
+</script>

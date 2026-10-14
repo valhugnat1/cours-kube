@@ -1,0 +1,10 @@
+---
+// Encadré « piège » : une erreur fréquente, son symptôme, le réflexe.
+---
+<aside class="encart piege"><p class="encart-titre">Piège</p><slot /></aside>
+<style>
+  .encart { padding: 0.85rem 1rem 0.1rem; margin: 1.25rem 0; }
+  .encart-titre { font-weight: 650; margin: 0 0 0.3rem; font-size: 0.95rem; }
+  .piege { background: var(--ambre-clair); border-left: 4px solid var(--ambre); border-radius: 0 var(--rayon) var(--rayon) 0; }
+  .piege .encart-titre { color: var(--ambre); }
+</style>

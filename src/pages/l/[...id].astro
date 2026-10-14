@@ -1,0 +1,91 @@
+---
+import Base from '../../layouts/Base.astro';
+import Rail from '../../components/Rail.astro';
+import Commandes from '../../components/Commandes.astro';
+import Quiz from '../../components/Quiz.astro';
+import Retenir from '../../components/Retenir.astro';
+import Piege from '../../components/Piege.astro';
+import { render } from 'astro:content';
+import { toutesLesLecons, urlLecon, questionsDe, type Lecon } from '../../data/lecons';
+import { etapeParNumero } from '../../data/etapes';
+
+export async function getStaticPaths() {
+  const lecons = await toutesLesLecons();
+  return lecons.map((lecon) => ({ params: { id: lecon.id }, props: { lecon, lecons } }));
+}
+
+interface Props { lecon: Lecon; lecons: Lecon[] }
+const { lecon, lecons } = Astro.props;
+const { Content } = await render(lecon);
+const d = lecon.data;
+const etape = etapeParNumero(d.etape);
+const memeEtape = lecons.filter((l) => l.data.etape === d.etape);
+const stations = memeEtape.map((l) => ({ id: l.id, titre: l.data.titre, url: urlLecon(l), type: l.data.type }));
+const rang = memeEtape.filter((l) => l.data.type === 'lecon').findIndex((l) => l.id === lecon.id) + 1;
+const nbLecons = memeEtape.filter((l) => l.data.type === 'lecon').length;
+
+// Suivante dans le parcours : on enchaîne les leçons ; un lab ne bloque jamais le parcours.
+const idx = lecons.findIndex((l) => l.id === lecon.id);
+const suivante = lecons.slice(idx + 1).find((l) => l.data.type === 'lecon');
+const finDePartie = !suivante || etapeParNumero(suivante.data.etape).partie !== etape.partie;
+const lab = memeEtape.find((l) => l.data.type === 'lab');
+---
+<Base titre={d.titre} retour={{ href: `/#etape-${d.etape}`, texte: 'Parcours' }}>
+  <p class="contexte">Étape {d.etape}, {etape.titre.toLowerCase()}</p>
+  <Rail stations={stations} courante={lecon.id} compact />
+
+  <h1>{d.titre}</h1>
+  {d.type === 'lab'
+    ? <p class="bandeau-lab">Lab optionnel, à faire sur PC avec ton cluster kind. Compte environ {d.duree * 4} min.</p>
+    : <p class="discret">Leçon {rang} sur {nbLecons}, {d.duree} min. {d.objectif}</p>}
+
+  <article class="contenu">
+    <Content components={{ Retenir, Piege }} />
+  </article>
+
+  <Commandes commandes={d.commandes} />
+
+  {d.quiz.length > 0 ? (
+    <section class="verifier">
+      <h2>Vérifie</h2>
+      <Quiz id="quiz-lecon" questions={questionsDe(lecon)} marquerLue={lecon.id} />
+    </section>
+  ) : (
+    <button type="button" class="bouton secondaire marquer" data-lecon={lecon.id}>Marquer comme fait</button>
+  )}
+
+  <nav class="suite" aria-label="Suite du parcours">
+    {finDePartie && (
+      <a class="bouton" href={`/controle/${etape.partie.toLowerCase()}/`}>Contrôle de la partie {etape.partie}</a>
+    )}
+    {suivante && (
+      <a class:list={['bouton', { secondaire: finDePartie }]} href={urlLecon(suivante)}>
+        Leçon suivante : {suivante.data.titre}
+      </a>
+    )}
+    {lab && d.type === 'lecon' && rang === nbLecons && (
+      <a class="lien-lab" href={urlLecon(lab)}>Sur PC : {lab.data.titre}</a>
+    )}
+  </nav>
+</Base>
+
+<style>
+  .contexte { margin: 0.5rem 0 0; color: var(--encre-douce); font-size: 0.92rem; }
+  .bandeau-lab { background: var(--surface); border: 1.5px dashed var(--encre-douce); border-radius: var(--rayon); padding: 0.6rem 0.8rem; font-size: 0.95rem; }
+  .contenu { margin-top: 1.25rem; }
+  .verifier { margin-top: 2rem; }
+  .suite { display: grid; gap: 0.6rem; margin-top: 2rem; }
+  .lien-lab { text-align: center; color: var(--encre-douce); font-size: 0.95rem; margin-top: 0.4rem; }
+  .marquer { margin-top: 2rem; }
+</style>
+<script>
+  import { rendreSchemas } from '../../scripts/schemas';
+  import { marquerLue } from '../../scripts/progression';
+  rendreSchemas();
+  document.querySelector<HTMLButtonElement>('.marquer')?.addEventListener('click', (ev) => {
+    const b = ev.currentTarget as HTMLButtonElement;
+    marquerLue(b.dataset.lecon!);
+    b.textContent = 'Fait';
+    b.disabled = true;
+  });
+</script>

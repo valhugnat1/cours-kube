@@ -1,0 +1,99 @@
+/* Cours Kube — carnet de terrain lu sur téléphone.
+   Une seule chose mémorable : le « rail » de progression (ligne + stations).
+   Tout le reste reste calme : une famille de texte (Literata), une mono pour les commandes. */
+
+:root {
+  --papier: #f2f5f4;
+  --surface: #ffffff;
+  --encre: #18242b;
+  --encre-douce: #4d5c63;
+  --trait: #d3dcda;
+  --pin: #0d6650;        /* progression, validé, action */
+  --pin-clair: #dcefe8;
+  --ambre: #a3600a;      /* pièges, à revoir */
+  --ambre-clair: #fbeed6;
+  --rouge: #b3261e;
+  --rouge-clair: #fbe4e2;
+  --code-fond: #e8eeec;
+  --rayon: 10px;
+  --mesure: 36rem;
+  color-scheme: light;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --papier: #111a1e;
+    --surface: #18242a;
+    --encre: #e4ece9;
+    --encre-douce: #9fb0ab;
+    --trait: #2c3b40;
+    --pin: #5cc7a4;
+    --pin-clair: #173a31;
+    --ambre: #f0b65a;
+    --ambre-clair: #3a2c12;
+    --rouge: #f08a82;
+    --rouge-clair: #3d1d1b;
+    --code-fond: #1f2d33;
+    color-scheme: dark;
+  }
+}
+
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0;
+  background: var(--papier);
+  color: var(--encre);
+  font-family: 'Literata Variable', Georgia, serif;
+  font-size: 1.0625rem;
+  line-height: 1.65;
+  font-optical-sizing: auto;
+}
+
+main { max-width: var(--mesure); margin: 0 auto; padding: 1rem 1rem 4rem; }
+
+h1, h2, h3 { line-height: 1.2; font-weight: 650; letter-spacing: -0.01em; }
+h1 { font-size: 1.75rem; margin: 0.4rem 0 0.6rem; }
+h2 { font-size: 1.25rem; margin: 2rem 0 0.5rem; }
+h3 { font-size: 1.05rem; margin: 1.5rem 0 0.4rem; }
+p { margin: 0 0 1rem; }
+a { color: var(--pin); text-underline-offset: 3px; }
+strong { font-weight: 650; }
+ul, ol { padding-left: 1.25rem; margin: 0 0 1rem; }
+li { margin: 0.2rem 0; }
+
+code, pre, .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.86em; }
+:not(pre) > code { background: var(--code-fond); padding: 0.08em 0.35em; border-radius: 4px; word-break: break-word; }
+pre { background: var(--code-fond) !important; padding: 0.8rem 0.9rem; border-radius: var(--rayon); overflow-x: auto; line-height: 1.5; margin: 0 0 1rem; }
+@media (prefers-color-scheme: dark) {
+  .astro-code, .astro-code span { color: var(--shiki-dark) !important; }
+}
+
+table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; display: block; overflow-x: auto; }
+th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--trait); vertical-align: top; }
+th { font-weight: 650; }
+
+:focus-visible { outline: 2px solid var(--pin); outline-offset: 2px; border-radius: 4px; }
+
+.discret { color: var(--encre-douce); font-size: 0.92rem; }
+
+.bouton {
+  display: block; width: 100%; text-align: center; text-decoration: none;
+  background: var(--pin); color: var(--papier); font: inherit; font-weight: 650;
+  border: 0; border-radius: var(--rayon); padding: 0.85rem 1rem; cursor: pointer;
+}
+.bouton.secondaire { background: transparent; color: var(--pin); border: 1.5px solid var(--pin); }
+.bouton[disabled] { opacity: 0.45; cursor: default; }
+
+/* Schémas mermaid */
+.schema { margin: 1.25rem -0.25rem 1.25rem; padding: 0.75rem 0.25rem; overflow-x: auto; text-align: center; }
+.schema svg { max-width: 100%; height: auto; }
+.schema .node rect, .schema .cluster rect { rx: 8px; ry: 8px; }
+pre:has(> code.language-mermaid) { color: transparent; min-height: 9rem; background: transparent !important; border: 1px dashed var(--trait); }
+pre.schema-erreur { color: var(--encre); }
+
+@media (prefers-reduced-motion: no-preference) {
+  .rail-station.vient-detre-lu { animation: pulse 900ms ease-out 1; }
+  @keyframes pulse { 0% { transform: scale(1.6); } 100% { transform: scale(1); } }
+}

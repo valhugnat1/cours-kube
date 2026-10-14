@@ -1,0 +1,115 @@
+---
+import Base from '../layouts/Base.astro';
+import Rail from '../components/Rail.astro';
+import { parcours, toutesLesLecons, urlLecon } from '../data/lecons';
+
+const parties = await parcours();
+const ordre = (await toutesLesLecons())
+  .filter((l) => l.data.type === 'lecon')
+  .map((l) => ({ id: l.id, titre: l.data.titre, url: urlLecon(l), etape: l.data.etape }));
+const premiere = ordre[0];
+---
+<Base titre="Parcours">
+  <section class="reprendre" data-ordre={JSON.stringify(ordre)}>
+    <p class="avancement"><span data-nb-lues>0</span> leçons lues sur {ordre.length} disponibles</p>
+    <div class="jauge" aria-hidden="true"><span data-jauge></span></div>
+    {premiere ? (
+      <a class="carte-reprendre" href={premiere.url} data-reprendre>
+        <span class="discret" data-reprendre-libelle>Commencer</span>
+        <span class="carte-titre" data-reprendre-titre>{premiere.titre}</span>
+        <span class="discret" data-reprendre-etape>Étape {premiere.etape}</span>
+      </a>
+    ) : (
+      <p>Aucune leçon générée pour l’instant. Lance <code>/lecon etape-00</code> dans Claude Code.</p>
+    )}
+    <a class="carte-revoir" href="/revoir/" data-carte-revoir hidden>
+      <span data-nb-revoir-texte></span> à revoir
+    </a>
+  </section>
+
+  {parties.map((p) => (
+    <section class="partie">
+      <h2>{p.id}. {p.titre}</h2>
+      <p class="discret">{p.resume}</p>
+      {p.etapes.map((e) => (
+        <div class:list={['etape', { vide: e.lecons.length === 0 }]} id={`etape-${e.n}`}>
+          <h3>
+            <span>Étape {e.n}. {e.titre}</span>
+            {e.lecons.length > 0 && (
+              <span class="compte" data-compte={JSON.stringify(e.lecons.filter((l) => l.data.type === 'lecon').map((l) => l.id))}></span>
+            )}
+          </h3>
+          {e.lecons.length > 0
+            ? <Rail stations={e.lecons.map((l) => ({ id: l.id, titre: l.data.titre, url: urlLecon(l), type: l.data.type }))} />
+            : <p class="discret">Pas encore générée.</p>}
+        </div>
+      ))}
+      {p.etapes.some((e) => e.lecons.length > 0) && (
+        <a class="controle" href={`/controle/${p.id.toLowerCase()}/`}>
+          Contrôle de la partie {p.id} <span class="discret" data-score-controle={p.id}></span>
+        </a>
+      )}
+    </section>
+  ))}
+</Base>
+
+<style>
+  .reprendre { margin: 0.5rem 0 1.5rem; }
+  .avancement { margin: 0 0 0.4rem; color: var(--encre-douce); font-size: 0.95rem; }
+  .jauge { height: 6px; background: var(--trait); border-radius: 999px; overflow: hidden; margin-bottom: 1rem; }
+  .jauge span { display: block; height: 100%; width: 0; background: var(--pin); border-radius: 999px; transition: width 400ms ease; }
+  .carte-reprendre { display: grid; gap: 0.15rem; text-decoration: none; color: var(--encre); background: var(--surface); border: 1.5px solid var(--pin); border-radius: 14px; padding: 1rem 1.1rem; }
+  .carte-titre { font-size: 1.3rem; font-weight: 650; line-height: 1.25; }
+  .carte-revoir { display: block; margin-top: 0.6rem; text-decoration: none; color: var(--ambre); background: var(--ambre-clair); border-radius: var(--rayon); padding: 0.65rem 1rem; font-weight: 650; }
+  .partie { margin-top: 2.25rem; }
+  .partie h2 { margin-bottom: 0.15rem; }
+  .etape { margin-top: 1.1rem; }
+  .etape h3 { display: flex; justify-content: space-between; gap: 1rem; margin: 0 0 0.25rem; font-size: 1rem; }
+  .etape.vide h3 { color: var(--encre-douce); font-weight: 400; }
+  .etape.vide p { margin: 0; }
+  .compte { color: var(--encre-douce); font-weight: 400; font-size: 0.9rem; white-space: nowrap; }
+  .controle { display: block; margin-top: 1.1rem; color: var(--pin); font-weight: 650; }
+</style>
+<script>
+  import { lire, aRevoir } from '../scripts/progression';
+  const racine = document.querySelector<HTMLElement>('[data-ordre]')!;
+  const ordre: { id: string; titre: string; url: string; etape: number }[] = JSON.parse(racine.dataset.ordre!);
+
+  const maj = () => {
+    const e = lire();
+    const lues = ordre.filter((l) => e.lues[l.id]).length;
+    document.querySelector('[data-nb-lues]')!.textContent = String(lues);
+    (document.querySelector('[data-jauge]') as HTMLElement).style.width = `${ordre.length ? (100 * lues) / ordre.length : 0}%`;
+
+    const suivante = ordre.find((l) => !e.lues[l.id]);
+    const carte = document.querySelector<HTMLAnchorElement>('[data-reprendre]');
+    if (carte) {
+      if (suivante) {
+        carte.href = suivante.url;
+        carte.querySelector('[data-reprendre-libelle]')!.textContent = lues ? 'Reprendre' : 'Commencer';
+        carte.querySelector('[data-reprendre-titre]')!.textContent = suivante.titre;
+        carte.querySelector('[data-reprendre-etape]')!.textContent = `Étape ${suivante.etape}`;
+      } else if (ordre.length) {
+        carte.querySelector('[data-reprendre-libelle]')!.textContent = 'Tout est lu';
+        carte.querySelector('[data-reprendre-titre]')!.textContent = 'Fais un contrôle de partie ou vide ta pile « À revoir ».';
+        carte.href = '/revoir/';
+      }
+    }
+
+    const nb = aRevoir(e).length;
+    const cr = document.querySelector<HTMLElement>('[data-carte-revoir]')!;
+    cr.hidden = nb === 0;
+    cr.querySelector('[data-nb-revoir-texte]')!.textContent = nb === 1 ? '1 question' : `${nb} questions`;
+
+    document.querySelectorAll<HTMLElement>('[data-compte]').forEach((el) => {
+      const ids: string[] = JSON.parse(el.dataset.compte!);
+      el.textContent = `${ids.filter((i) => e.lues[i]).length}/${ids.length}`;
+    });
+    document.querySelectorAll<HTMLElement>('[data-score-controle]').forEach((el) => {
+      const c = e.controles[el.dataset.scoreControle!];
+      el.textContent = c ? `dernier score ${c.score}/${c.total}` : '';
+    });
+  };
+  document.addEventListener('progression', maj);
+  maj();
+</script>

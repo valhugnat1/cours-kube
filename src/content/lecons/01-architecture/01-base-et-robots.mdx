@@ -1,0 +1,71 @@
+---
+titre: "Une base de données avec des robots autour"
+etape: 1
+ordre: 1
+objectif: "Expliquer la réconciliation et pourquoi on décrit un état au lieu de donner des ordres."
+commandes:
+  - c: "kubectl get pods -w"
+    d: "regarder les pods changer en direct (watch)"
+quiz:
+  - q: "Tu supprimes un pod géré par un Deployment. Un nouveau pod apparaît aussitôt. Pourquoi ?"
+    choix:
+      - "Kubernetes a annulé ta commande"
+      - "Un contrôleur a vu qu'il manquait un pod par rapport à l'état désiré et l'a recréé"
+      - "Le pod n'a pas vraiment été supprimé, il a redémarré"
+    bonne: 1
+    explication: "L'état désiré dit « N pods ». Le contrôleur constate l'écart et le comble. C'est le système qui fonctionne, pas un bug."
+  - q: "Quel composant est la seule porte d'entrée pour lire ou écrire l'état du cluster ?"
+    choix:
+      - "etcd"
+      - "kubectl"
+      - "Le kube-apiserver"
+    bonne: 2
+    explication: "kubectl n'est qu'un client HTTP de l'API server, et seul l'API server lit et écrit dans etcd."
+  - q: "Quelle phrase décrit le mieux le modèle de Kubernetes ?"
+    choix:
+      - "Tu lui ordonnes des actions, il les exécute une fois"
+      - "Tu décris l'état voulu, des boucles agissent en continu pour l'atteindre"
+      - "Il planifie les conteneurs à heure fixe, comme un cron"
+    bonne: 1
+    explication: "C'est la réconciliation : comparer l'état désiré à l'état observé, en boucle, et agir sur l'écart."
+---
+
+Oublie l'image d'un « orchestrateur qui lance des conteneurs ». Le modèle mental juste tient en trois pièces.
+
+```mermaid
+flowchart TD
+  K["kubectl, Helm, ArgoCD…"] -->|"requêtes HTTP"| A["<b>API server</b><br/>seule porte d'entrée"]
+  A <--> E[("<b>etcd</b><br/>l'état désiré")]
+  C["<b>Contrôleurs</b><br/>boucles infinies"] <-->|"observent et écrivent"| A
+```
+
+1. Une **base de données**, etcd, contient des objets qui décrivent un **état désiré** : « je veux trois réplicas de cette image ».
+2. Une **API**, l'API server, est la seule porte d'entrée pour lire ou écrire ces objets. `kubectl` ne fait rien d'autre que des appels HTTP à cette API.
+3. Des **contrôleurs**, des boucles infinies, comparent en permanence l'état désiré à l'état observé et agissent pour combler l'écart.
+
+Ce mécanisme s'appelle la **réconciliation**.
+
+```mermaid
+flowchart TD
+  O["Observer l'état réel"] --> D{{"<b>Écart avec</b><br/>l'état désiré ?"}}
+  D -->|"oui"| X["Agir pour le réduire"]
+  D -->|"non"| W["Attendre"]
+  X --> O
+  W --> O
+```
+
+## Tu décris, tu n'ordonnes pas
+
+Conséquence fondamentale : **tu ne demandes jamais à Kubernetes de faire quelque chose, tu lui décris ce que tu veux obtenir.**
+
+Si tu supprimes un pod géré par un Deployment, le contrôleur constate qu'il manque un pod et en recrée un. De ton point de vue, ta commande « n'a pas marché ». Du point de vue du système, tout fonctionne : l'état désiré dit trois pods, il y en a de nouveau trois.
+
+C'est aussi ce qui rend Kubernetes robuste. Un nœud tombe ? Les pods qu'il portait manquent, les contrôleurs en recréent ailleurs. Personne n'a écrit de script « si un nœud tombe, alors… ».
+
+## Pourquoi ça compte chez un client
+
+Toute action manuelle sur un objet qu'un contrôleur gère sera, tôt ou tard, annulée. Avant de modifier ou supprimer quoi que ce soit, la question à se poser est : **qui gère cet objet, et quel état désiré va-t-il rétablir ?** L'étape 2 est entièrement consacrée à cette question.
+
+<Retenir>
+etcd stocke l'état désiré, l'API server est la seule porte, les contrôleurs réconcilient en boucle. Tu décris un résultat, tu ne donnes pas d'ordres.
+</Retenir>

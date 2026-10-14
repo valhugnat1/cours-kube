@@ -1,0 +1,37 @@
+---
+// « Commandes utiles » : à connaître, pas à taper maintenant. Touche une commande pour la copier.
+interface Props { commandes: { c: string; d: string }[]; titre?: string }
+const { commandes, titre = 'Commandes utiles' } = Astro.props;
+---
+{commandes.length > 0 && (
+  <section class="cmds">
+    <h2>{titre}</h2>
+    <ul>
+      {commandes.map((x) => (
+        <li>
+          <button type="button" class="cmd" data-copie={x.c} aria-label={`Copier : ${x.c}`}><code>{x.c}</code></button>
+          <span class="cmd-d">{x.d}</span>
+        </li>
+      ))}
+    </ul>
+  </section>
+)}
+<style>
+  .cmds ul { list-style: none; padding: 0; margin: 0; }
+  .cmds li { padding: 0.55rem 0; border-bottom: 1px solid var(--trait); margin: 0; }
+  .cmd { all: unset; cursor: pointer; display: block; overflow-x: auto; white-space: nowrap; max-width: 100%; }
+  .cmd code { background: var(--code-fond); padding: 0.2em 0.45em; border-radius: 6px; font-size: 0.85rem; }
+  .cmd.copie code { background: var(--pin-clair); }
+  .cmd-d { display: block; color: var(--encre-douce); font-size: 0.93rem; margin-top: 0.2rem; }
+</style>
+<script>
+  document.querySelectorAll<HTMLButtonElement>('.cmd[data-copie]').forEach((b) =>
+    b.addEventListener('click', async () => {
+      try {
+        await navigator.clipboard.writeText(b.dataset.copie!);
+        b.classList.add('copie');
+        setTimeout(() => b.classList.remove('copie'), 900);
+      } catch { /* presse-papier refusé */ }
+    }),
+  );
+</script>

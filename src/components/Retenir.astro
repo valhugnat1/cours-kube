@@ -1,0 +1,10 @@
+---
+// Encadré « à retenir » : 1 à 3 phrases, l'idée qu'on doit garder si on oublie tout le reste.
+---
+<aside class="encart retenir"><p class="encart-titre">À retenir</p><slot /></aside>
+<style>
+  .encart { border-radius: var(--rayon); padding: 0.85rem 1rem 0.1rem; margin: 1.25rem 0; }
+  .encart-titre { font-weight: 650; margin: 0 0 0.3rem; font-size: 0.95rem; }
+  .retenir { background: var(--pin-clair); border-left: 4px solid var(--pin); border-radius: 0 var(--rayon) var(--rayon) 0; }
+  .retenir .encart-titre { color: var(--pin); }
+</style>

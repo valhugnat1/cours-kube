@@ -1,0 +1,66 @@
+---
+import '@fontsource-variable/literata/opsz.css';
+import '@fontsource-variable/literata/opsz-italic.css';
+import '@fontsource/ibm-plex-mono/400.css';
+import '../styles/global.css';
+
+interface Props { titre: string; retour?: { href: string; texte: string } }
+const { titre, retour } = Astro.props;
+---
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <title>{titre} — Cours Kube</title>
+    <meta name="robots" content="noindex, nofollow" />
+    <meta name="theme-color" content="#f2f5f4" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#111a1e" media="(prefers-color-scheme: dark)" />
+    <link rel="manifest" href="/manifest.webmanifest" />
+    <link rel="icon" href="/icone.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/icone-180.png" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+  </head>
+  <body>
+    <header class="barre">
+      <div class="barre-int">
+        {retour
+          ? <a class="barre-retour" href={retour.href}>‹ {retour.texte}</a>
+          : <a class="barre-marque" href="/">Cours Kube</a>}
+        <nav class="barre-nav" aria-label="Navigation">
+          <a href="/revoir/">À revoir <span class="pastille" data-nb-revoir hidden></span></a>
+          <a href="/commandes/">Commandes</a>
+          <span class="synchro" title="État de la synchronisation" aria-hidden="true"></span>
+        </nav>
+      </div>
+    </header>
+    <main>
+      <slot />
+    </main>
+    <script>
+      import { synchroniser, lire, aRevoir } from '../scripts/progression';
+      const majPastille = () => {
+        const n = aRevoir(lire()).length;
+        document.querySelectorAll<HTMLElement>('[data-nb-revoir]').forEach((el) => {
+          el.textContent = String(n);
+          el.hidden = n === 0;
+        });
+      };
+      document.addEventListener('progression', majPastille);
+      majPastille();
+      synchroniser();
+    </script>
+    <style>
+      .barre { position: sticky; top: 0; z-index: 5; background: var(--papier); border-bottom: 1px solid var(--trait); }
+      .barre-int { max-width: var(--mesure); margin: 0 auto; padding: 0.6rem 1rem; display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+      .barre a { text-decoration: none; color: var(--encre); }
+      .barre-marque { font-weight: 650; }
+      .barre-retour { color: var(--encre-douce) !important; font-size: 0.95rem; }
+      .barre-nav { display: flex; gap: 1rem; align-items: center; font-size: 0.92rem; }
+      .pastille { display: inline-block; min-width: 1.3em; padding: 0 0.35em; border-radius: 999px; background: var(--ambre-clair); color: var(--ambre); font-weight: 650; font-size: 0.8rem; text-align: center; }
+      .synchro { width: 8px; height: 8px; border-radius: 50%; background: var(--trait); }
+      :global(html[data-synchro='ok']) .synchro { background: var(--pin); }
+      :global(html[data-synchro='hors-ligne']) .synchro { background: var(--ambre); }
+    </style>
+  </body>
+</html>

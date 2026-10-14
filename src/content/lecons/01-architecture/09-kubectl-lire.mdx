@@ -1,0 +1,80 @@
+---
+titre: "kubectl : se repérer et lire"
+etape: 1
+ordre: 9
+objectif: "Vérifier le contexte avant d'agir et lire l'état d'un pod avec describe et logs."
+commandes:
+  - c: "kubectl config current-context"
+    d: "le cluster actif, à vérifier avant toute commande qui modifie"
+  - c: "kubectl describe pod <pod>"
+    d: "état lisible et surtout les Events en bas"
+  - c: "kubectl logs <pod> --previous"
+    d: "les logs de l'instance précédente, celle qui a crashé"
+  - c: "kubectl logs <pod> -c <conteneur>"
+    d: "les logs d'un conteneur précis (init, sidecar)"
+  - c: "kubectl exec -it <pod> -- sh"
+    d: "ouvrir un shell dans le conteneur"
+quiz:
+  - q: "Un pod est en `CrashLoopBackOff` et `kubectl logs` est vide. Que fais-tu ?"
+    choix:
+      - "`kubectl logs <pod> --previous`"
+      - "Tu attends que le pod redémarre encore"
+      - "Tu supprimes le pod pour voir des logs neufs"
+    bonne: 0
+    explication: "L'instance courante vient de redémarrer et n'a encore rien écrit. L'erreur est dans les logs de l'instance précédente."
+  - q: "Où trouves-tu en général pourquoi un pod ne démarre pas (FailedScheduling, ErrImagePull, Unhealthy) ?"
+    choix:
+      - "Dans la section Events de `kubectl describe pod`"
+      - "Dans `kubectl get pods -o wide`"
+      - "Dans les logs du conteneur"
+    bonne: 0
+    explication: "Les Events racontent ce que le scheduler, le kubelet et le runtime ont tenté. Les logs n'existent que si le conteneur a démarré."
+  - q: "Quelle est la commande la plus importante avant de supprimer quoi que ce soit chez un client ?"
+    choix:
+      - "`kubectl get all`"
+      - "`kubectl config current-context`"
+      - "`kubectl version`"
+    bonne: 1
+    explication: "Un contexte actif erroné est la façon la plus classique de casser quelque chose en production."
+---
+
+Quatre-vingt-dix pour cent du travail quotidien tient en quelques commandes. Pas besoin de les taper maintenant : retiens à quoi elles servent et dans quel ordre on les dégaine.
+
+## D'abord, savoir où on est
+
+Le fichier `~/.kube/config` (ou la variable `KUBECONFIG`) contient des clusters, des identités et des **contextes**, c'est-à-dire des couples cluster + identité + namespace. Chez les clients, tu en manipuleras plusieurs.
+
+```mermaid
+flowchart TD
+  K["kubeconfig"] --> C1["contexte kind-lab"]
+  K --> C2["contexte client-preprod"]
+  K --> C3["contexte client-prod"]
+  C3 --> A["<b>actif = toute commande</b><br/>part ici"]
+```
+
+**Avant toute commande qui modifie, vérifie le contexte actif.** C'est la façon la plus classique de casser une production : on croit être sur la preprod.
+
+## Lire : du plus large au plus précis
+
+```mermaid
+flowchart TD
+  G["<b>get pods</b><br/>qui va mal ?"] --> D["<b>describe pod</b><br/>pourquoi : les Events"]
+  D --> L["<b>logs</b><br/>ce que dit l'application"]
+  L --> P["<b>logs --previous</b><br/>si elle a crashé"]
+```
+
+- `get` donne le tableau. `-A` pour tous les namespaces, `-o wide` pour le nœud et l'IP, `-l` pour filtrer par label, `-w` pour suivre en direct.
+- `describe` est **le premier réflexe sur un pod qui va mal**. La section Events, tout en bas, raconte ce que le scheduler, le kubelet et le runtime ont tenté, et pourquoi ça a échoué.
+- `logs` donne la sortie du conteneur. `-c` pour choisir un conteneur dans un pod qui en a plusieurs (init container, sidecar). `-f` pour suivre.
+
+## --previous, la commande qui fait gagner du temps
+
+Sur un pod en `CrashLoopBackOff`, les logs de l'instance courante sont souvent vides : elle vient de redémarrer. L'erreur est dans **l'instance précédente**. `kubectl logs <pod> --previous`.
+
+## Entrer dans le pod
+
+`kubectl exec -it <pod> -- sh` ouvre un shell. `kubectl port-forward` joint un pod ou un Service depuis ta machine, sans rien exposer. Les deux servent à tester de l'intérieur, sans passer par l'ingress.
+
+<Retenir>
+Contexte d'abord. Puis get, describe (les Events), logs, et `--previous` dès qu'il y a un crash.
+</Retenir>

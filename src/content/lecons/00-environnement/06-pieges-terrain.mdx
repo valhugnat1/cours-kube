@@ -1,0 +1,72 @@
+---
+titre: "Quand l'outil marche chez toi mais pas ailleurs"
+etape: 0
+ordre: 6
+objectif: "Reconnaître quatre pièges d'environnement réels et le premier réflexe pour chacun."
+commandes:
+  - c: "env | sort"
+    d: "lister les variables d'environnement pour repérer une variable parasite"
+  - c: "env -u AGENT <commande>"
+    d: "relancer une commande sans une variable donnée"
+  - c: "HOME=/tmp helm <commande>"
+    d: "contourner un $HOME en lecture seule dans un conteneur"
+  - c: "uv sync --reinstall"
+    d: "réinstaller proprement un outil Python après un git pull"
+quiz:
+  - q: "Un outil interne échoue avec une erreur de validation incompréhensible, mais seulement dans le terminal de Claude Code. Premier réflexe ?"
+    choix:
+      - "Réinstaller l'outil"
+      - "Comparer `env | sort` entre les deux terminaux et tester avec `env -u` sur la variable en trop"
+      - "Ouvrir un ticket à l'équipe outillage"
+    bonne: 1
+    explication: "Les harnais d'agents posent des variables comme `AGENT=1`. Un outil qui valide toutes les variables d'un préfixe peut échouer à cause d'elle."
+  - q: "Dans un pod OpenShift, `helm` refuse de démarrer car il ne peut pas écrire son cache. Pourquoi ?"
+    choix:
+      - "OpenShift interdit Helm dans les pods"
+      - "Le registre de charts est bloqué"
+      - "Le conteneur tourne avec un utilisateur arbitraire et `$HOME` n'est pas inscriptible"
+    bonne: 2
+    explication: "OpenShift lance les conteneurs avec un UID arbitraire. Pointer `HOME`, ou mieux `HELM_CACHE_HOME` et `HELM_CONFIG_HOME`, vers un dossier inscriptible règle le problème."
+  - q: "La doc interne dit d'utiliser `--env X`, mais l'outil installé ne connaît plus cette option. Que fais-tu ?"
+    choix:
+      - "Tu installes la vieille version pour suivre la doc"
+      - "Tu fais marcher avec la version réelle et tu notes l'écart explicitement"
+      - "Tu abandonnes et attends une doc à jour"
+    bonne: 1
+    explication: "Noter l'écart (version de la doc, version installée, option remplacée) et proposer le correctif est un signe de sérieux."
+---
+
+Ces cas sont tirés du terrain. Ils font perdre des heures quand on ne les reconnaît pas, et deux minutes quand on les a déjà vus.
+
+```mermaid
+flowchart TD
+  S["<b>L'outil marche ici</b><br/>mais pas là"] --> Q1{{"<b>Lancé depuis la racine</b><br/>du dépôt ?"}}
+  Q1 -->|non| R1["<b>Relancer depuis la racine,</b><br/>vérifier REPO_ROOT"]
+  Q1 -->|oui| Q2{{"<b>Même environnement</b><br/>(env | sort) ?"}}
+  Q2 -->|non| R2["<b>Tester sans la variable</b><br/>en trop : env -u"]
+  Q2 -->|oui| R3["<b>HOME inscriptible ?</b><br/>Version installée ?"]
+```
+
+## L'outil dépend du dossier courant
+
+Certains scripts internes cherchent leur configuration à partir du dossier courant ou d'une variable comme `REPO_ROOT`. Lance-les depuis la racine du dépôt, et vérifie la variable avant de conclure que l'outil est cassé.
+
+## Une variable d'environnement parasite
+
+Les harnais d'agents IA (Claude Code, Cursor…) posent des variables comme `AGENT=1` dans le shell qu'ils ouvrent. Un outil qui valide sa configuration en lisant toutes les variables d'un préfixe échoue alors avec un message sans rapport. Compare `env | sort` entre les deux terminaux, puis relance avec `env -u AGENT`.
+
+## Un $HOME en lecture seule
+
+Dans un conteneur lancé avec un utilisateur arbitraire (OpenShift le fait par défaut), `$HOME` pointe vers un dossier non inscriptible. Helm et kubectl refusent de démarrer parce qu'ils veulent écrire leur cache. Contournement rapide : `HOME=/tmp`. Version propre : `HELM_CACHE_HOME`, `HELM_CONFIG_HOME` et `KUBECONFIG` vers un dossier inscriptible.
+
+## Une installation qui retarde
+
+Un outil Python interne exige souvent une version précise de Python. `uv sync` respecte cette contrainte. Après un `git pull` de l'outil, `uv sync --reinstall` évite les erreurs fantômes d'une ancienne version restée installée.
+
+## La doc est périmée
+
+Quand la doc cite une option qui n'existe plus, ne force pas. Note l'écart (« doc : version N, installé : N+3, option remplacée par… »), fais marcher avec la version réelle, propose le correctif.
+
+<Retenir>
+Avant de dire « l'outil est cassé » : dossier courant, variables d'environnement, `$HOME` inscriptible, version installée. Et un écart de doc se note, il ne se cache pas.
+</Retenir>

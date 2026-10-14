@@ -1,0 +1,62 @@
+---
+titre: "Lab : ton cluster local et ta toolchain"
+etape: 0
+ordre: 90
+type: lab
+duree: 8
+objectif: "Avoir un cluster kind qui tourne, une toolchain vérifiée, et avoir vu un premier ImagePullBackOff."
+---
+
+Ce lab se fait sur ton PC, Docker lancé. Le cluster `lab` créé ici resservira dans toutes les étapes suivantes.
+
+## 1. Vérifie la toolchain
+
+```bash
+kubectl version --client && helm version && k9s version && kind version && uv --version
+type -a kubectl helm   # aucun doublon attendu
+```
+
+## 2. Crée le cluster
+
+```bash
+kind create cluster --name lab
+kubectl cluster-info
+kubectl get nodes        # un nœud Ready
+kubectl get pods -A      # les composants système, tous Running
+```
+
+## 3. Déploie quelque chose avec Helm
+
+Un chart généré localement, sans dépendre d'un registre externe :
+
+```bash
+helm create demo
+helm install demo ./demo
+kubectl get pods         # un pod demo-… Running
+```
+
+## 4. Ouvre k9s
+
+Tape `:pods` puis Entrée, sélectionne le pod, `l` pour les logs, `Échap` pour revenir, `:q` pour quitter. Rien de plus pour l'instant.
+
+## 5. Fais-le échouer exprès
+
+Dans `demo/values.yaml`, remplace `tag: ""` par `tag: "n-existe-pas"`, puis :
+
+```bash
+helm upgrade demo ./demo
+kubectl get pods                 # statut ImagePullBackOff
+kubectl describe pod <nom>       # lis les Events jusqu'à la ligne qui explique
+```
+
+Remets le tag et refais `helm upgrade`.
+
+## 6. Nettoie
+
+```bash
+helm uninstall demo    # garde le cluster, il resservira
+```
+
+## Validé si
+
+Tu peux expliquer à voix haute pourquoi un conteneur qui écoute sur `127.0.0.1` est injoignable, pourquoi `"1.10"` a besoin de guillemets, ce qu'est un OOMKilled, et où regarder quand un outil marche dans ton terminal mais pas dans celui de Claude Code.

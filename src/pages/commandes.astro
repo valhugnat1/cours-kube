@@ -1,0 +1,31 @@
+---
+import Base from '../layouts/Base.astro';
+import Commandes from '../components/Commandes.astro';
+import { toutesLesLecons, urlLecon } from '../data/lecons';
+import { etapes } from '../data/etapes';
+
+const lecons = await toutesLesLecons();
+const groupes = etapes
+  .map((e) => ({ e, ls: lecons.filter((l) => l.data.etape === e.n && l.data.commandes.length) }))
+  .filter((g) => g.ls.length);
+---
+<Base titre="Commandes" retour={{ href: '/', texte: 'Parcours' }}>
+  <h1>Commandes utiles</h1>
+  <p class="discret">Toutes les commandes vues dans les leçons, étape par étape. Touche une commande pour la copier.</p>
+  {groupes.map(({ e, ls }) => (
+    <section>
+      <h2>Étape {e.n}. {e.titre}</h2>
+      {ls.map((l) => (
+        <div class="groupe">
+          <a class="source" href={urlLecon(l)}>{l.data.titre}</a>
+          <Commandes commandes={l.data.commandes} titre="" />
+        </div>
+      ))}
+    </section>
+  ))}
+</Base>
+<style>
+  .groupe { margin-top: 0.75rem; }
+  .source { font-size: 0.92rem; color: var(--encre-douce); }
+  .groupe :global(h2:empty) { display: none; }
+</style>

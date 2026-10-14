@@ -1,0 +1,83 @@
+---
+titre: "Anatomie d'un objet : spec et status"
+etape: 1
+ordre: 5
+objectif: "Lire n'importe quel objet Kubernetes en repérant apiVersion, kind, metadata, spec et status."
+commandes:
+  - c: "kubectl get deploy <nom> -o yaml"
+    d: "l'objet complet, spec, status et valeurs par défaut ajoutées"
+  - c: "kubectl explain deployment.spec.strategy"
+    d: "la doc d'un champ, tirée du cluster lui-même"
+  - c: "kubectl api-resources"
+    d: "tous les types connus du cluster, avec leurs raccourcis"
+quiz:
+  - q: "Qui écrit le champ `status` d'un Deployment ?"
+    choix:
+      - "Toi, dans ton manifeste"
+      - "Les contrôleurs"
+      - "Helm, au moment de l'installation"
+    bonne: 1
+    explication: "`spec` est l'état désiré, il t'appartient. `status` est l'état observé, écrit par les contrôleurs."
+  - q: "Tu veux connaître les options de `rollingUpdate` sur la version exacte du cluster d'un client. Que fais-tu ?"
+    choix:
+      - "Tu cherches dans la doc officielle en ligne"
+      - "Tu demandes au client sa version puis tu cherches"
+      - "`kubectl explain deployment.spec.strategy.rollingUpdate`"
+    bonne: 2
+    explication: "`kubectl explain` interroge le cluster lui-même : la doc correspond exactement à la version installée."
+  - q: "Quel `apiVersion` porte un Deployment ?"
+    choix:
+      - "`v1`"
+      - "`apps/v1`"
+      - "`batch/v1`"
+    bonne: 1
+    explication: "Deployment, StatefulSet et DaemonSet sont dans `apps/v1`. `v1` est pour Pod, Service, ConfigMap ; `batch/v1` pour Job et CronJob."
+---
+
+Tout objet Kubernetes, du Pod à la ressource la plus exotique d'un opérateur, a la même forme. Une fois qu'on l'a vue, on lit n'importe quel manifeste.
+
+```yaml
+apiVersion: apps/v1     # groupe/version qui définit ce type
+kind: Deployment        # le type d'objet
+metadata:               # identité : nom, namespace, labels, annotations
+  name: web
+  namespace: default
+spec:                   # ÉTAT DÉSIRÉ : ce que tu écris
+  replicas: 2
+status:                 # ÉTAT OBSERVÉ : ce que les contrôleurs écrivent
+  readyReplicas: 2
+```
+
+```mermaid
+flowchart TD
+  T["Toi, Helm, ArgoCD"] -->|"écrivent"| S["<b>spec</b><br/>état désiré"]
+  C["Contrôleurs, kubelet"] -->|"écrivent"| ST["<b>status</b><br/>état observé"]
+  S -.->|"comparés en boucle"| ST
+```
+
+## spec t'appartient, status non
+
+`spec` est ce que tu demandes. `status` est ce que les contrôleurs constatent. Tu n'écris jamais `status`. La réconciliation, c'est précisément l'écart entre les deux : `replicas: 3` dans spec, `readyReplicas: 2` dans status, un contrôleur travaille.
+
+## apiVersion, le groupe de l'API
+
+| apiVersion | Objets |
+|---|---|
+| `v1` | Pod, Service, ConfigMap, Secret, Namespace |
+| `apps/v1` | Deployment, StatefulSet, DaemonSet |
+| `batch/v1` | Job, CronJob |
+| `networking.k8s.io/v1` | Ingress, NetworkPolicy |
+
+Quand un client a un vieux cluster, ce sont ces versions qui posent des problèmes de compatibilité : une API retirée dans une version récente, ou pas encore disponible dans une ancienne (étape 10).
+
+## La vérité est dans le cluster
+
+`kubectl get … -o yaml` montre l'objet tel que l'API le stocke, y compris toutes les **valeurs par défaut** que tu n'as pas écrites (`strategy`, `progressDeadlineSeconds`…). C'est souvent là qu'on comprend un comportement surprenant.
+
+`kubectl explain` donne la documentation de n'importe quel champ, **pour la version réellement installée**. C'est plus fiable que la doc en ligne, qui décrit peut-être une autre version.
+
+`kubectl api-resources` liste tous les types disponibles, y compris les CRDs installées. Sur un cluster client inconnu, c'est une des premières commandes à lancer.
+
+<Retenir>
+apiVersion + kind disent le type, metadata l'identité, spec ce que tu veux, status ce qui est. `-o yaml` et `explain` disent la vérité du cluster.
+</Retenir>

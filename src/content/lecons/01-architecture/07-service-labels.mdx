@@ -1,0 +1,79 @@
+---
+titre: "Services et labels : le lien entre les objets"
+etape: 1
+ordre: 7
+objectif: "Expliquer à quoi sert un Service et pourquoi les labels sont le seul lien entre objets."
+commandes:
+  - c: "kubectl get pods -l app=web"
+    d: "filtrer les pods par label"
+  - c: "kubectl get pods --show-labels"
+    d: "afficher tous les labels des pods"
+  - c: "kubectl port-forward svc/web 8080:80"
+    d: "joindre un Service depuis ta machine sur le port 8080"
+  - c: "kubectl get all -l app.kubernetes.io/instance=<release>"
+    d: "tout ce qu'une release Helm a créé"
+quiz:
+  - q: "Les pods ont déjà une IP. Pourquoi faut-il un Service ?"
+    choix:
+      - "Pour chiffrer le trafic entre pods"
+      - "Pour avoir une adresse et un nom stables devant des pods qui changent d'IP"
+      - "Pour exposer obligatoirement l'application sur Internet"
+    bonne: 1
+    explication: "Un pod qui meurt est remplacé par un autre, avec une autre IP. Le Service reste, et suit les pods par leurs labels."
+  - q: "Un Service n'envoie le trafic vers aucun pod, alors que les pods tournent. Première chose à vérifier ?"
+    choix:
+      - "Que le selector du Service correspond aux labels des pods"
+      - "Que le nœud a assez de mémoire"
+      - "Que l'image est à jour"
+    bonne: 0
+    explication: "Le selector est le seul lien. Une faute de frappe dans un label, et le Service ne cible plus rien."
+  - q: "Tu veux retrouver tout ce qu'une release Helm a créé sur un cluster client. Quel label filtrer ?"
+    choix:
+      - "`app=<release>`"
+      - "`app.kubernetes.io/instance=<release>`"
+      - "`helm.sh/chart=<release>`"
+    bonne: 1
+    explication: "Les charts suivent la convention `app.kubernetes.io/*`, et `instance` porte le nom de la release."
+---
+
+Un pod a une IP éphémère. Si le client de ton API devait connaître l'IP de chaque pod, il serait cassé à chaque redémarrage. Le **Service** règle ce problème.
+
+## Une adresse stable devant des pods mortels
+
+Un Service donne une IP et un nom DNS **stables** à un groupe de pods. Il répartit le trafic entre ceux qui sont `Ready`. Depuis n'importe quel pod du même namespace, `http://web` suffit ; depuis ailleurs, `http://web.default.svc.cluster.local`.
+
+```mermaid
+flowchart TD
+  C["<b>Un client dans le cluster</b><br/>appelle http://web"] --> S["<b>Service web</b><br/>selector app=web"]
+  S --> P1["<b>Pod app=web</b><br/>Ready"]
+  S --> P2["<b>Pod app=web</b><br/>Ready"]
+  S -.-x P3["<b>Pod app=api</b><br/>pas sélectionné"]
+```
+
+Les types de Service (ClusterIP, NodePort, LoadBalancer) viendront à l'étape 4. Ici, retiens la mécanique.
+
+## Les labels, seul lien entre les objets
+
+Un **label** est une paire clé-valeur posée sur `metadata.labels`, faite pour être **sélectionnée**. C'est le seul mécanisme qui relie :
+
+- un Deployment à ses pods ;
+- un Service à ses pods ;
+- une NetworkPolicy à ses cibles.
+
+Il n'y a pas de référence par nom ni par identifiant. Si le selector du Service dit `app: web` et que les pods portent `app: webb`, le Service ne cible rien, sans aucune erreur.
+
+## Annotations : de la métadonnée, pas de la sélection
+
+Une **annotation** est aussi une paire clé-valeur, mais elle n'est pas sélectionnable. Elle porte de l'information pour les outils : réglages d'un ingress controller, empreinte d'un ConfigMap pour forcer un redémarrage, informations de Helm ou d'ArgoCD.
+
+## La convention à reconnaître
+
+Les charts Helm utilisent des labels standard : `app.kubernetes.io/name`, `app.kubernetes.io/instance`, `app.kubernetes.io/component`. Sur un cluster client, filtrer par `app.kubernetes.io/instance=<release>` te donne tout ce qu'une release a créé.
+
+<Piege>
+Un Service sans cible ne renvoie pas d'erreur explicite : les connexions échouent, c'est tout. Le premier réflexe est de comparer son selector avec `kubectl get pods --show-labels`.
+</Piege>
+
+<Retenir>
+Service = adresse stable devant des pods qui changent. Labels = seul lien entre objets, à sélectionner. Annotations = métadonnées pour les outils.
+</Retenir>

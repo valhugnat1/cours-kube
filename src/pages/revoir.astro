@@ -1,0 +1,25 @@
+---
+import Base from '../layouts/Base.astro';
+import Quiz from '../components/Quiz.astro';
+import { toutesLesLecons, questionsDe } from '../data/lecons';
+
+const questions = (await toutesLesLecons()).flatMap(questionsDe);
+---
+<Base titre="À revoir" retour={{ href: '/', texte: 'Parcours' }}>
+  <h1>À revoir</h1>
+  <p class="discret">Les questions que tu as ratées, toutes leçons confondues. Une bonne réponse la retire de la pile.</p>
+  <Quiz id="quiz-revoir" questions={questions} revoir melanger afficherSource max={10}>
+    <p class="vide">Rien à revoir pour l’instant. Les questions ratées en fin de leçon atterrissent ici.</p>
+  </Quiz>
+  <a class="bouton secondaire encore" href="/revoir/" hidden data-encore>Encore une série</a>
+</Base>
+<style>
+  .vide { margin: 0; }
+  .encore { margin-top: 1rem; }
+</style>
+<script>
+  import { lire, aRevoir } from '../scripts/progression';
+  document.addEventListener('quiz-fini', () => {
+    (document.querySelector('[data-encore]') as HTMLElement).hidden = aRevoir(lire()).length === 0;
+  });
+</script>
