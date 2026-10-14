@@ -45,14 +45,16 @@ const lab = memeEtape.find((l) => l.data.type === 'lab');
 
   <Commandes commandes={d.commandes} />
 
-  {d.quiz.length > 0 ? (
+  {d.quiz.length > 0 && (
     <section class="verifier">
       <h2>Vérifie</h2>
-      <Quiz id="quiz-lecon" questions={questionsDe(lecon)} marquerLue={lecon.id} />
+      <Quiz id="quiz-lecon" questions={questionsDe(lecon)} />
     </section>
-  ) : (
-    <button type="button" class="bouton secondaire marquer" data-lecon={lecon.id}>Marquer comme fait</button>
   )}
+
+  <button type="button" class="bouton secondaire marquer" data-lecon={lecon.id} data-auto={d.type === 'lecon' ? '1' : ''}
+    data-non={d.type === 'lab' ? 'Marquer comme fait' : 'Marquer comme lue'}
+    data-oui={d.type === 'lab' ? 'Fait ✓ · annuler' : 'Lue ✓ · remettre en non lue'}>{d.type === 'lab' ? 'Marquer comme fait' : 'Marquer comme lue'}</button>
 
   <nav class="suite" aria-label="Suite du parcours">
     {finDePartie && (
@@ -80,12 +82,35 @@ const lab = memeEtape.find((l) => l.data.type === 'lab');
 </style>
 <script>
   import { rendreSchemas } from '../../scripts/schemas';
-  import { marquerLue } from '../../scripts/progression';
+  import { lire, estLue, marquerLue, marquerNonLue } from '../../scripts/progression';
   rendreSchemas();
-  document.querySelector<HTMLButtonElement>('.marquer')?.addEventListener('click', (ev) => {
-    const b = ev.currentTarget as HTMLButtonElement;
-    marquerLue(b.dataset.lecon!);
-    b.textContent = 'Fait';
-    b.disabled = true;
+
+  // Bouton lue / non lue : réversible dans les deux sens, sur les leçons comme sur les labs.
+  const bouton = document.querySelector<HTMLButtonElement>('.marquer')!;
+  const id = bouton.dataset.lecon!;
+  let retireeIci = false;
+  const majBouton = () => {
+    const lue = estLue(lire(), id);
+    bouton.textContent = lue ? bouton.dataset.oui! : bouton.dataset.non!;
+  };
+  bouton.addEventListener('click', () => {
+    if (estLue(lire(), id)) { retireeIci = true; marquerNonLue(id); }
+    else marquerLue(id);
   });
+  document.addEventListener('progression', majBouton);
+  majBouton();
+
+  // Leçons : passage automatique en « lue » quand tu arrives au quiz (après au moins 20 s sur la page)
+  // ou quand tu réponds à sa dernière question. Si tu la remets en non lue, plus rien d'automatique
+  // jusqu'à ta prochaine visite.
+  if (bouton.dataset.auto) {
+    const ouverture = Date.now();
+    const auto = () => { if (!retireeIci) marquerLue(id); };
+    new IntersectionObserver((entrees, obs) => {
+      if (!entrees.some((x) => x.isIntersecting)) return;
+      obs.disconnect();
+      setTimeout(auto, Math.max(0, 20_000 - (Date.now() - ouverture)));
+    }).observe(document.querySelector('.verifier') ?? bouton);
+    document.addEventListener('quiz-termine', auto);
+  }
 </script>

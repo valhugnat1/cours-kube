@@ -24,7 +24,7 @@ Cloudflare → **Workers & Pages → Create → Import a repository** → ce dé
 - **Enable Preview builds** : activé (une URL d'aperçu par branche poussée)
 - **Protect with Cloudflare Access** : activé
 
-Le binding D1 et le dossier statique (`dist`) sont lus dans `wrangler.jsonc` : rien d'autre à configurer côté dashboard.
+Le binding D1 et le dossier statique (`dist`) sont lus dans `wrangler.jsonc` : rien d'autre à configurer côté dashboard. Les aperçus de branche (`wrangler preview`) utilisent la même base D1 que la prod (bloc `previews`) : ce que tu lis sur un aperçu compte dans ta progression.
 
 ### 3. L'accès privé
 

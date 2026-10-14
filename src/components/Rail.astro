@@ -45,11 +45,11 @@ const { stations, courante, compact = false } = Astro.props;
   .etiquette { font-size: 0.75rem; color: var(--encre-douce); border: 1px solid var(--trait); border-radius: 999px; padding: 0 0.5em; white-space: nowrap; }
 </style>
 <script>
-  import { lire } from '../scripts/progression';
+  import { lire, estLue } from '../scripts/progression';
   const maj = () => {
     const e = lire();
     document.querySelectorAll<HTMLElement>('.rail-station[data-lecon]').forEach((el) => {
-      el.classList.toggle('lue', !!e.lues[el.dataset.lecon!]);
+      el.classList.toggle('lue', estLue(e, el.dataset.lecon!));
     });
   };
   document.addEventListener('progression', maj);
