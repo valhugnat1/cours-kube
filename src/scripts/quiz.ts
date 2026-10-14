@@ -16,6 +16,7 @@ export type Question = {
 type Options = {
   afficherSource?: boolean;          // lien vers la leçon d'origine (révisions, contrôles)
   melanger?: boolean;
+  onTermine?: () => void;            // dernière question répondue, avant l'écran de score
   onFini?: (score: number, total: number) => void;
   libelleFin?: string;
 };
@@ -74,6 +75,7 @@ export function monterQuiz(racine: HTMLElement, questions: Question[], opts: Opt
       <p>${md(q.explication)}</p>
       <button type="button" class="bouton">${i + 1 < qs.length ? 'Question suivante' : 'Voir le résultat'}</button>`;
     retour.querySelector('button')!.addEventListener('click', () => { i++; rendre(); });
+    if (i + 1 === qs.length) opts.onTermine?.();
   };
 
   const fin = () => {

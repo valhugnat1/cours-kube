@@ -4,7 +4,7 @@
 
 export type Etat = {
   v: 1;
-  lues: Record<string, number>;                         // id leçon -> date de lecture
+  lues: Record<string, number>;                         // id leçon -> date de lecture (négative : remise en non lue à cette date)
   reponses: Record<string, { ok: boolean; t: number }>; // id question -> dernier résultat
   controles: Record<string, { score: number; total: number; t: number }>;
 };
@@ -12,10 +12,13 @@ export type Etat = {
 const CLE = 'ck:progression';
 const vide = (): Etat => ({ v: 1, lues: {}, reponses: {}, controles: {} });
 
+// Lecture (> 0) ou retrait (< 0) : le plus récent gagne, pour qu'un « non lue » se propage aussi.
+const plusRecente = (x = 0, y = 0) => (Math.abs(x) >= Math.abs(y) ? x : y);
+
 export function fusionner(a: Etat, b: Etat): Etat {
   const out = vide();
   for (const k of new Set([...Object.keys(a.lues), ...Object.keys(b.lues)])) {
-    out.lues[k] = Math.max(a.lues[k] ?? 0, b.lues[k] ?? 0);
+    out.lues[k] = plusRecente(a.lues[k], b.lues[k]);
   }
   for (const champ of ['reponses', 'controles'] as const) {
     const ka = a[champ] as Record<string, { t: number }>;
@@ -45,23 +48,34 @@ function ecrire(e: Etat) {
 }
 
 let envoiPrevu: ReturnType<typeof setTimeout> | undefined;
+let enAttente = false;
 function envoyer() {
   clearTimeout(envoiPrevu);
-  envoiPrevu = setTimeout(async () => {
-    try {
-      const r = await fetch('/api/progression', {
-        method: 'PUT',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(lire()),
-        keepalive: true,
-      });
-      if (r.ok) ecrire(fusionner(lire(), await r.json()));
-      statutSynchro(r.ok ? 'ok' : 'hors-ligne');
-    } catch {
-      statutSynchro('hors-ligne');
-    }
-  }, 400);
+  enAttente = true;
+  envoiPrevu = setTimeout(pousser, 400);
 }
+
+async function pousser() {
+  clearTimeout(envoiPrevu);
+  enAttente = false;
+  try {
+    const r = await fetch('/api/progression', {
+      method: 'PUT',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify(lire()),
+      keepalive: true,
+    });
+    if (r.ok) ecrire(fusionner(lire(), await r.json()));
+    statutSynchro(r.ok ? 'ok' : 'hors-ligne');
+  } catch {
+    statutSynchro('hors-ligne');
+  }
+}
+
+// Page quittée ou app mise en arrière-plan avant la fin du délai : on envoie tout de suite.
+document.addEventListener('visibilitychange', () => {
+  if (document.visibilityState === 'hidden' && enAttente) pousser();
+});
 
 function statutSynchro(s: 'ok' | 'hors-ligne') {
   document.documentElement.dataset.synchro = s;
@@ -84,9 +98,19 @@ export async function synchroniser() {
   }
 }
 
+export const estLue = (e: Etat, id: string) => (e.lues[id] ?? 0) > 0;
+
+// Toujours plus récent que l'état remplacé, même si l'horloge de cet appareil retarde un peu.
+const apres = (e: Etat, id: string) => Math.max(Date.now(), Math.abs(e.lues[id] ?? 0) + 1);
+
 export function marquerLue(id: string) {
   const e = lire();
-  if (!e.lues[id]) { e.lues[id] = Date.now(); ecrire(e); envoyer(); }
+  if (!estLue(e, id)) { e.lues[id] = apres(e, id); ecrire(e); envoyer(); }
+}
+
+export function marquerNonLue(id: string) {
+  const e = lire();
+  if (estLue(e, id)) { e.lues[id] = -apres(e, id); ecrire(e); envoyer(); }
 }
 
 export function enregistrerReponse(qid: string, ok: boolean) {

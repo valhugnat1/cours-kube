@@ -1,10 +1,10 @@
 ---
 // Monte un quiz côté client. Les questions sont passées en JSON.
-interface Props { questions: unknown[]; id: string; afficherSource?: boolean; melanger?: boolean; marquerLue?: string; controle?: string; max?: number; revoir?: boolean }
-const { questions, id, afficherSource = false, melanger = false, marquerLue, controle, max = 0, revoir = false } = Astro.props;
+interface Props { questions: unknown[]; id: string; afficherSource?: boolean; melanger?: boolean; controle?: string; max?: number; revoir?: boolean }
+const { questions, id, afficherSource = false, melanger = false, controle, max = 0, revoir = false } = Astro.props;
 ---
 <div class="quiz" id={id} data-questions={JSON.stringify(questions)} data-source={afficherSource ? '1' : ''}
-  data-melanger={melanger ? '1' : ''} data-lue={marquerLue ?? ''} data-controle={controle ?? ''}
+  data-melanger={melanger ? '1' : ''} data-controle={controle ?? ''}
   data-max={max} data-revoir={revoir ? '1' : ''}><slot /></div>
 <style>
   .quiz { background: var(--surface); border: 1px solid var(--trait); border-radius: 14px; padding: 1rem; }
@@ -22,7 +22,7 @@ const { questions, id, afficherSource = false, melanger = false, marquerLue, con
 </style>
 <script>
   import { monterQuiz } from '../scripts/quiz';
-  import { marquerLue, enregistrerControle, lire, aRevoir } from '../scripts/progression';
+  import { enregistrerControle, lire, aRevoir } from '../scripts/progression';
   const monter = (el: HTMLElement) => {
     let qs: { id: string }[] = JSON.parse(el.dataset.questions!);
     if (el.dataset.revoir) {
@@ -35,8 +35,8 @@ const { questions, id, afficherSource = false, melanger = false, marquerLue, con
     if (!qs.length) return; // le contenu du slot (état vide) reste affiché
     monterQuiz(el, qs as never, {
       afficherSource: !!el.dataset.source,
+      onTermine: () => el.dispatchEvent(new CustomEvent('quiz-termine', { bubbles: true })),
       onFini: (score, total) => {
-        if (el.dataset.lue) marquerLue(el.dataset.lue);
         if (el.dataset.controle) enregistrerControle(el.dataset.controle, score, total);
         el.dispatchEvent(new CustomEvent('quiz-fini', { bubbles: true, detail: { score, total } }));
       },

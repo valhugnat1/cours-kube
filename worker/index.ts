@@ -12,17 +12,20 @@ interface Env { DB: D1Database; ASSETS: Fetcher }
 
 type Etat = {
   v: 1;
-  lues: Record<string, number>;
+  lues: Record<string, number>; // date de lecture, négative si remise en non lue
   reponses: Record<string, { ok: boolean; t: number }>;
   controles: Record<string, { score: number; total: number; t: number }>;
 };
 
 const vide = (): Etat => ({ v: 1, lues: {}, reponses: {}, controles: {} });
 
+// Même règle que src/scripts/progression.ts : lecture (> 0) ou retrait (< 0), le plus récent gagne.
+const plusRecente = (x = 0, y = 0) => (Math.abs(x) >= Math.abs(y) ? x : y);
+
 function fusionner(a: Etat, b: Etat): Etat {
   const out = vide();
   for (const k of new Set([...Object.keys(a.lues ?? {}), ...Object.keys(b.lues ?? {})])) {
-    out.lues[k] = Math.max(a.lues?.[k] ?? 0, b.lues?.[k] ?? 0);
+    out.lues[k] = plusRecente(a.lues?.[k], b.lues?.[k]);
   }
   for (const champ of ['reponses', 'controles'] as const) {
     const ka = (a[champ] ?? {}) as Record<string, { t: number }>;

@@ -71,17 +71,17 @@ const premiere = ordre[0];
   .controle { display: block; margin-top: 1.1rem; color: var(--pin); font-weight: 650; }
 </style>
 <script>
-  import { lire, aRevoir } from '../scripts/progression';
+  import { lire, aRevoir, estLue } from '../scripts/progression';
   const racine = document.querySelector<HTMLElement>('[data-ordre]')!;
   const ordre: { id: string; titre: string; url: string; etape: number }[] = JSON.parse(racine.dataset.ordre!);
 
   const maj = () => {
     const e = lire();
-    const lues = ordre.filter((l) => e.lues[l.id]).length;
+    const lues = ordre.filter((l) => estLue(e, l.id)).length;
     document.querySelector('[data-nb-lues]')!.textContent = String(lues);
     (document.querySelector('[data-jauge]') as HTMLElement).style.width = `${ordre.length ? (100 * lues) / ordre.length : 0}%`;
 
-    const suivante = ordre.find((l) => !e.lues[l.id]);
+    const suivante = ordre.find((l) => !estLue(e, l.id));
     const carte = document.querySelector<HTMLAnchorElement>('[data-reprendre]');
     if (carte) {
       if (suivante) {
@@ -103,7 +103,7 @@ const premiere = ordre[0];
 
     document.querySelectorAll<HTMLElement>('[data-compte]').forEach((el) => {
       const ids: string[] = JSON.parse(el.dataset.compte!);
-      el.textContent = `${ids.filter((i) => e.lues[i]).length}/${ids.length}`;
+      el.textContent = `${ids.filter((i) => estLue(e, i)).length}/${ids.length}`;
     });
     document.querySelectorAll<HTMLElement>('[data-score-controle]').forEach((el) => {
       const c = e.controles[el.dataset.scoreControle!];
