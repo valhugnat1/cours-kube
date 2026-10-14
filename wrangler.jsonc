@@ -16,5 +16,16 @@
       // Database ID de la base D1 (Storage & Databases → D1 → cours-kube).
       "database_id": "190059ad-a840-40a7-a93b-dcab48680c0c"
     }
-  ]
+  ],
+  "previews": {
+    // Aperçus par branche (`wrangler preview`) : même base D1 que la prod, choix assumé.
+    // Ce que tu lis sur un aperçu compte dans ta vraie progression.
+    "d1_databases": [
+      {
+        "binding": "DB",
+        "database_name": "cours-kube",
+        "database_id": "190059ad-a840-40a7-a93b-dcab48680c0c"
+      }
+    ]
+  }
 }
