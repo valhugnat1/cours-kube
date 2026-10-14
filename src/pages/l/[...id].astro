@@ -47,12 +47,18 @@ const lab = memeEtape.find((l) => l.data.type === 'lab');
 
   {d.quiz.length > 0 && (
     <section class="verifier">
-      <h2>Vérifie</h2>
-      <Quiz id="quiz-lecon" questions={questionsDe(lecon)} />
+      <h2>Valide la leçon</h2>
+      <p class="discret consigne" data-consigne
+        data-non="Réponds juste à chaque question pour valider la leçon. Celles que tu rates reviennent en fin de série."
+        data-oui="Leçon validée. Tu peux refaire le quiz quand tu veux.">
+        Réponds juste à chaque question pour valider la leçon. Celles que tu rates reviennent en fin de série.
+      </p>
+      <Quiz id="quiz-lecon" questions={questionsDe(lecon)} maitrise />
     </section>
   )}
 
-  <button type="button" class="bouton secondaire marquer" data-lecon={lecon.id} data-auto={d.type === 'lecon' ? '1' : ''}
+  <button type="button" class="bouton secondaire marquer" data-lecon={lecon.id} data-par-quiz={d.quiz.length > 0 ? '1' : ''}
+    hidden={d.quiz.length > 0}
     data-non={d.type === 'lab' ? 'Marquer comme fait' : 'Marquer comme lue'}
     data-oui={d.type === 'lab' ? 'Fait ✓ · annuler' : 'Lue ✓ · remettre en non lue'}>{d.type === 'lab' ? 'Marquer comme fait' : 'Marquer comme lue'}</button>
 
@@ -76,6 +82,7 @@ const lab = memeEtape.find((l) => l.data.type === 'lab');
   .bandeau-lab { background: var(--surface); border: 1.5px dashed var(--encre-douce); border-radius: var(--rayon); padding: 0.6rem 0.8rem; font-size: 0.95rem; }
   .contenu { margin-top: 1.25rem; }
   .verifier { margin-top: 2rem; }
+  .consigne { margin-top: -0.2rem; }
   .suite { display: grid; gap: 0.6rem; margin-top: 2rem; }
   .lien-lab { text-align: center; color: var(--encre-douce); font-size: 0.95rem; margin-top: 0.4rem; }
   .marquer { margin-top: 2rem; }
@@ -85,32 +92,19 @@ const lab = memeEtape.find((l) => l.data.type === 'lab');
   import { lire, estLue, marquerLue, marquerNonLue } from '../../scripts/progression';
   rendreSchemas();
 
-  // Bouton lue / non lue : réversible dans les deux sens, sur les leçons comme sur les labs.
+  // Une leçon ne passe en « lue » qu'en réussissant son quiz jusqu'au sans-faute ; le bouton sert
+  // seulement à la remettre en non lue. Un lab (pas de quiz) se marque « fait » à la main.
   const bouton = document.querySelector<HTMLButtonElement>('.marquer')!;
   const id = bouton.dataset.lecon!;
-  let retireeIci = false;
-  const majBouton = () => {
+  const consigne = document.querySelector<HTMLElement>('[data-consigne]');
+  const maj = () => {
     const lue = estLue(lire(), id);
     bouton.textContent = lue ? bouton.dataset.oui! : bouton.dataset.non!;
+    bouton.hidden = !!bouton.dataset.parQuiz && !lue;
+    if (consigne) consigne.textContent = lue ? consigne.dataset.oui! : consigne.dataset.non!;
   };
-  bouton.addEventListener('click', () => {
-    if (estLue(lire(), id)) { retireeIci = true; marquerNonLue(id); }
-    else marquerLue(id);
-  });
-  document.addEventListener('progression', majBouton);
-  majBouton();
-
-  // Leçons : passage automatique en « lue » quand tu arrives au quiz (après au moins 20 s sur la page)
-  // ou quand tu réponds à sa dernière question. Si tu la remets en non lue, plus rien d'automatique
-  // jusqu'à ta prochaine visite.
-  if (bouton.dataset.auto) {
-    const ouverture = Date.now();
-    const auto = () => { if (!retireeIci) marquerLue(id); };
-    new IntersectionObserver((entrees, obs) => {
-      if (!entrees.some((x) => x.isIntersecting)) return;
-      obs.disconnect();
-      setTimeout(auto, Math.max(0, 20_000 - (Date.now() - ouverture)));
-    }).observe(document.querySelector('.verifier') ?? bouton);
-    document.addEventListener('quiz-termine', auto);
-  }
+  bouton.addEventListener('click', () => (estLue(lire(), id) ? marquerNonLue(id) : marquerLue(id)));
+  document.addEventListener('quiz-termine', () => marquerLue(id));
+  document.addEventListener('progression', maj);
+  maj();
 </script>

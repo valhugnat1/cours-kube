@@ -1,24 +1,104 @@
 ---
 // Monte un quiz côté client. Les questions sont passées en JSON.
-interface Props { questions: unknown[]; id: string; afficherSource?: boolean; melanger?: boolean; controle?: string; max?: number; revoir?: boolean }
-const { questions, id, afficherSource = false, melanger = false, controle, max = 0, revoir = false } = Astro.props;
+// maitrise : les questions ratées reviennent jusqu'au sans-faute (fin de leçon).
+interface Props { questions: unknown[]; id: string; afficherSource?: boolean; melanger?: boolean; maitrise?: boolean; controle?: string; max?: number; revoir?: boolean }
+const { questions, id, afficherSource = false, melanger = false, maitrise = false, controle, max = 0, revoir = false } = Astro.props;
 ---
 <div class="quiz" id={id} data-questions={JSON.stringify(questions)} data-source={afficherSource ? '1' : ''}
-  data-melanger={melanger ? '1' : ''} data-controle={controle ?? ''}
+  data-melanger={melanger ? '1' : ''} data-maitrise={maitrise ? '1' : ''} data-controle={controle ?? ''}
   data-max={max} data-revoir={revoir ? '1' : ''}><slot /></div>
 <style>
-  .quiz { background: var(--surface); border: 1px solid var(--trait); border-radius: 14px; padding: 1rem; }
-  .quiz :global(.quiz-compteur) { color: var(--encre-douce); font-size: 0.88rem; margin: 0 0 0.3rem; }
-  .quiz :global(.quiz-question) { font-weight: 650; font-size: 1.08rem; }
-  .quiz :global(.quiz-choix) { display: grid; gap: 0.5rem; margin: 0.5rem 0 0.75rem; }
-  .quiz :global(.quiz-option) { font: inherit; text-align: left; color: var(--encre); background: var(--papier); border: 1.5px solid var(--trait); border-radius: var(--rayon); padding: 0.7rem 0.85rem; cursor: pointer; }
-  .quiz :global(.quiz-option:not([disabled]):active) { border-color: var(--pin); }
+  .quiz { background: var(--surface); border: 1px solid var(--trait); border-radius: 16px; padding: 1rem 1rem 1.1rem; scroll-margin-top: 4.5rem; }
+
+  /* Rail du quiz : une station par question, comme le rail du parcours. */
+  .quiz :global(.quiz-rail) { list-style: none; margin: 0.15rem 0 0.5rem; padding: 0; display: flex; align-items: center; }
+  .quiz :global(.quiz-rail li) { flex: 1 1 0; display: flex; align-items: center; margin: 0; }
+  .quiz :global(.quiz-rail li:first-child) { flex: 0 0 auto; }
+  .quiz :global(.quiz-rail li::before) { content: ''; flex: 1; height: 2px; margin: 0 3px; background: var(--trait); border-radius: 2px; }
+  .quiz :global(.quiz-rail li:first-child::before) { display: none; }
+  .quiz :global(.quiz-rail li:not(.a-faire)::before) { background: var(--pin); opacity: 0.45; }
+  .quiz :global(.quiz-rail li::after) { content: ''; flex: none; width: 12px; height: 12px; border-radius: 50%; border: 2px solid var(--trait); background: var(--surface); transition: background-color 200ms, border-color 200ms, transform 200ms; }
+  .quiz :global(.quiz-rail li.juste::after) { background: var(--pin); border-color: var(--pin); }
+  .quiz :global(.quiz-rail li.ratee::after) { background: var(--rouge); border-color: var(--rouge); }
+  .quiz :global(.quiz-rail li.a-reprendre::after) { background: var(--ambre-clair); border-color: var(--ambre); }
+  .quiz :global(.quiz-rail li.courante::after) { box-shadow: 0 0 0 3px var(--pin-clair); transform: scale(1.15); }
+  .quiz :global(.quiz-rail li.courante.a-faire::after) { border-color: var(--pin); }
+
+  .quiz :global(.quiz-compteur) { color: var(--encre-douce); font-size: 0.85rem; margin: 0 0 0.35rem; }
+  .quiz :global(.quiz-question) { font-weight: 650; font-size: 1.1rem; line-height: 1.45; margin: 0 0 0.9rem; }
+  .quiz :global(.quiz-source) { color: var(--encre-douce); font-size: 0.9rem; margin: -0.5rem 0 0.9rem; }
+
+  .quiz :global(.quiz-choix) { display: grid; gap: 0.55rem; margin: 0 0 0.9rem; }
+  .quiz :global(.quiz-option) {
+    display: flex; align-items: flex-start; gap: 0.7rem; width: 100%;
+    font: inherit; text-align: left; color: var(--encre); background: var(--papier);
+    border: 1.5px solid var(--trait); border-radius: 12px; padding: 0.7rem 0.8rem; cursor: pointer;
+    transition: border-color 150ms, background-color 150ms, transform 100ms;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .quiz :global(.quiz-lettre) {
+    flex: none; display: grid; place-items: center; width: 1.75rem; height: 1.75rem; border-radius: 50%;
+    border: 1.5px solid var(--trait); background: var(--surface); color: var(--encre-douce);
+    font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.85rem; font-weight: 600;
+    transition: background-color 150ms, border-color 150ms, color 150ms;
+  }
+  .quiz :global(.quiz-texte) { min-width: 0; overflow-wrap: anywhere; }
+  @media (hover: hover) {
+    .quiz :global(.quiz-option:not([disabled]):hover) { border-color: var(--pin); }
+    .quiz :global(.quiz-option:not([disabled]):hover .quiz-lettre) { border-color: var(--pin); color: var(--pin); }
+  }
+  .quiz :global(.quiz-option:not([disabled]):active) { transform: scale(0.985); border-color: var(--pin); }
+  .quiz :global(.quiz-option[disabled]) { cursor: default; }
+  .quiz :global(.quiz-option[disabled]:not(.juste):not(.faux)) { opacity: 0.5; }
   .quiz :global(.quiz-option.juste) { border-color: var(--pin); background: var(--pin-clair); }
+  .quiz :global(.quiz-option.juste .quiz-lettre) { background: var(--pin); border-color: var(--pin); color: var(--surface); }
   .quiz :global(.quiz-option.faux) { border-color: var(--rouge); background: var(--rouge-clair); }
-  .quiz :global(.quiz-option[disabled]:not(.juste):not(.faux)) { opacity: 0.55; }
-  .quiz :global(.quiz-verdict) { font-weight: 650; margin-bottom: 0.3rem; }
-  .quiz :global(.quiz-verdict.juste) { color: var(--pin); }
-  .quiz :global(.quiz-verdict.faux) { color: var(--rouge); }
+  .quiz :global(.quiz-option.faux .quiz-lettre) { background: var(--rouge); border-color: var(--rouge); color: var(--surface); }
+
+  .quiz :global(.quiz-verdict) { border-left: 4px solid; border-radius: 4px 12px 12px 4px; padding: 0.7rem 0.9rem; margin-bottom: 0.8rem; }
+  .quiz :global(.quiz-verdict p) { margin: 0 0 0.4rem; }
+  .quiz :global(.quiz-verdict p:last-child) { margin-bottom: 0; }
+  .quiz :global(.quiz-verdict.juste) { border-color: var(--pin); background: var(--pin-clair); }
+  .quiz :global(.quiz-verdict.faux) { border-color: var(--rouge); background: var(--rouge-clair); }
+  .quiz :global(.quiz-verdict-titre) { font-weight: 700; }
+  .quiz :global(.quiz-verdict.juste .quiz-verdict-titre) { color: var(--pin); }
+  .quiz :global(.quiz-verdict.faux .quiz-verdict-titre) { color: var(--rouge); }
+  .quiz :global(.quiz-reprise) { color: var(--ambre); font-weight: 650; font-size: 0.92rem; }
+
+  /* Écran final */
+  .quiz :global(.quiz-fin) { text-align: center; padding: 0.4rem 0 0.1rem; }
+  .quiz :global(.quiz-fin p:last-child) { margin-bottom: 0; }
+  .quiz :global(.quiz-fin-titre) { font-weight: 700; font-size: 1.25rem; margin: 0 0 0.3rem; }
+  .quiz :global(.quiz-tampon) {
+    position: relative; width: 7rem; height: 7rem; margin: 0.25rem auto 1rem; border-radius: 50%;
+    border: 3px solid var(--pin); color: var(--pin); display: grid; place-content: center; justify-items: center;
+    transform: rotate(-12deg);
+  }
+  .quiz :global(.quiz-tampon::before) { content: ''; position: absolute; inset: 5px; border: 1.5px dashed var(--pin); border-radius: 50%; opacity: 0.7; }
+  .quiz :global(.quiz-tampon b) { font-size: 2rem; line-height: 1.1; }
+  .quiz :global(.quiz-tampon span) { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.14em; text-transform: uppercase; }
+  .quiz :global(.quiz-anneau) { position: relative; width: 7.5rem; height: 7.5rem; margin: 0.25rem auto 1rem; }
+  .quiz :global(.quiz-anneau svg) { position: absolute; inset: 0; transform: rotate(-90deg); }
+  .quiz :global(.quiz-anneau circle) { fill: none; stroke-width: 9; }
+  .quiz :global(.quiz-anneau .fond) { stroke: var(--trait); }
+  .quiz :global(.quiz-anneau .valeur) { stroke: var(--pin); stroke-linecap: round; stroke-dasharray: 100; stroke-dashoffset: calc(100 - var(--pct)); }
+  .quiz :global(.quiz-score) { position: absolute; inset: 0; margin: 0; display: grid; place-content: center; line-height: 1.2; color: var(--encre-douce); font-size: 0.85rem; }
+  .quiz :global(.quiz-score strong) { font-size: 2rem; color: var(--encre); }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .quiz :global(.quiz-option) { animation: quiz-entree 260ms ease-out backwards; animation-delay: calc(var(--i, 0) * 45ms); }
+    .quiz :global(.quiz-option.juste .quiz-lettre) { animation: quiz-pop 320ms ease-out; }
+    .quiz :global(.quiz-option.faux) { animation: quiz-secousse 320ms ease-in-out; }
+    .quiz :global(.quiz-retour > *) { animation: quiz-entree 240ms ease-out backwards; }
+    .quiz :global(.quiz-retour > .bouton) { animation-delay: 80ms; }
+    .quiz :global(.quiz-tampon) { animation: quiz-tampon 480ms cubic-bezier(0.2, 0.9, 0.3, 1.25) backwards; }
+    .quiz :global(.quiz-anneau .valeur) { animation: quiz-anneau 900ms ease-out backwards; }
+  }
+  @keyframes quiz-entree { from { opacity: 0; transform: translateY(6px); } }
+  @keyframes quiz-pop { 0% { transform: scale(1); } 45% { transform: scale(1.3); } 100% { transform: scale(1); } }
+  @keyframes quiz-secousse { 20%, 60% { transform: translateX(-5px); } 40%, 80% { transform: translateX(5px); } }
+  @keyframes quiz-tampon { from { opacity: 0; transform: rotate(-26deg) scale(1.7); } 70% { opacity: 1; transform: rotate(-10deg) scale(0.95); } }
+  @keyframes quiz-anneau { from { stroke-dashoffset: 100; } }
 </style>
 <script>
   import { monterQuiz } from '../scripts/quiz';
@@ -35,9 +115,12 @@ const { questions, id, afficherSource = false, melanger = false, controle, max =
     if (!qs.length) return; // le contenu du slot (état vide) reste affiché
     monterQuiz(el, qs as never, {
       afficherSource: !!el.dataset.source,
-      onTermine: () => el.dispatchEvent(new CustomEvent('quiz-termine', { bubbles: true })),
-      onFini: (score, total) => {
+      maitrise: !!el.dataset.maitrise,
+      onTermine: (score, total) => {
         if (el.dataset.controle) enregistrerControle(el.dataset.controle, score, total);
+        el.dispatchEvent(new CustomEvent('quiz-termine', { bubbles: true, detail: { score, total } }));
+      },
+      onFini: (score, total) => {
         el.dispatchEvent(new CustomEvent('quiz-fini', { bubbles: true, detail: { score, total } }));
       },
     });

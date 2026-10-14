@@ -97,6 +97,7 @@ Une à trois phrases. Ce qu'il faut garder si on oublie tout le reste.
 
 ### Le quiz (3 ou 4 questions)
 
+- Le quiz **valide la leçon** : Hugo doit répondre juste à chaque question (les ratées reviennent en fin de série) pour qu'elle passe en lue. Une question ambiguë le bloque : une seule bonne réponse, indiscutable d'après la leçon.
 - Tester la compréhension et le réflexe, pas la mémoire d'un détail. Format idéal : « Situation chez un client, symptôme observé. Que fais-tu / quelle est la cause ? »
 - 3 choix (4 au maximum), tous plausibles, de longueur comparable. Pas de « toutes / aucune des réponses » (les choix sont mélangés à l'affichage).
 - Varie l'index de `bonne`.
