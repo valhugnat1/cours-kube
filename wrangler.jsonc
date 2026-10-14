@@ -14,7 +14,7 @@
       "binding": "DB",
       "database_name": "cours-kube",
       // Database ID de la base D1 (Storage & Databases → D1 → cours-kube).
-      "database_id": "A_REMPLIR"
+      "database_id": "190059ad-a840-40a7-a93b-dcab48680c0c"
     }
   ]
 }
