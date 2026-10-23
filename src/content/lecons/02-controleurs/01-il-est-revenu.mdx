@@ -1,0 +1,67 @@
+---
+titre: "« Je l'ai supprimé et il est revenu »"
+etape: 2
+ordre: 1
+objectif: "Reconnaître qu'un objet qui revient a un propriétaire, et savoir où agir à la place."
+commandes:
+  - c: "kubectl get pods -w"
+    d: "regarder en direct la boucle recréer ce que tu supprimes"
+  - c: "kubectl describe pod <pod>"
+    d: "la ligne Controlled By donne le propriétaire"
+quiz:
+  - q: "Sur un cluster client, tu mets un Deployment à 0 réplica. Dix minutes plus tard, il est revenu à 1. Quelle explication est la plus probable ?"
+    choix:
+      - "L'API server n'a pas enregistré ta commande"
+      - "Un autre acteur possède ce champ et le réécrit en boucle"
+      - "Le scheduler a relancé le pod faute de place ailleurs"
+    bonne: 1
+    explication: "Ta commande a bien été appliquée, puis annulée. Quand une valeur revient toute seule, c'est qu'une boucle de réconciliation la possède et repart de son propre état désiré."
+  - q: "Tu as changé une valeur d'un ConfigMap avec `kubectl edit`. Au déploiement suivant, elle a disparu. Que fallait-il faire ?"
+    choix:
+      - "Modifier la source de l'état désiré : values ou manifeste versionné"
+      - "Refaire le `kubectl edit` après chaque déploiement"
+      - "Supprimer le ConfigMap et le recréer à la main"
+    bonne: 0
+    explication: "Le déploiement réécrit le ConfigMap à partir de sa source. Tant que tu modifies le résultat et pas la source, ta valeur sera écrasée."
+  - q: "Pourquoi répéter ta commande pour « gagner » contre la boucle est voué à l'échec ?"
+    choix:
+      - "kubectl limite le nombre de commandes par minute"
+      - "L'API server refuse de modifier deux fois le même objet"
+      - "La boucle ne s'arrête jamais et repart de son état désiré à chaque tour"
+    bonne: 2
+    explication: "Une boucle de réconciliation tourne indéfiniment. Chaque tour compare le réel à son état désiré et corrige. Tu ne la fatigueras pas : change ce qu'elle lit."
+---
+
+Tu l'as vu au lab de l'étape 1 : tu supprimes un pod, un autre apparaît aussitôt. Sur un cluster client, cette situation a mille variantes, et elles font perdre des heures à qui ne la reconnaît pas.
+
+## Les variantes du même problème
+
+- tu supprimes un pod : il revient ;
+- tu changes le `replicas` d'un ReplicaSet : il reprend sa valeur ;
+- tu mets un Deployment à 0 réplica : quelque chose le remonte à 1 ;
+- tu modifies un ConfigMap avec `kubectl edit` : c'est écrasé au déploiement suivant ;
+- tu supprimes un objet : il reste en `Terminating` sans fin.
+
+## Une seule explication
+
+Dans tous ces cas, **quelqu'un d'autre possède l'objet ou le champ que tu touches**. Et ce quelqu'un est une boucle de réconciliation qui ne s'arrête jamais.
+
+```mermaid
+flowchart TD
+  E["<b>État désiré</b><br/>ce que la boucle lit"] --> B["<b>Boucle de réconciliation</b><br/>compare et corrige, sans fin"]
+  B --> P["<b>Ce qu'elle produit</b><br/>pods, réplicas, config"]
+  T1["<b>Toi : kubectl delete</b><br/>tu agis sur le résultat"] -.->|"annulé au tour suivant"| P
+  T2["<b>Toi : tu changes la source</b><br/>tu agis sur ce qu'elle lit"] -->|"durable"| E
+```
+
+Tu ne gagneras pas contre une boucle. Elle n'a pas de mémoire de ton geste : à chaque tour, elle relit son état désiré et remet le monde en conformité. Si tu supprimes ce qu'elle produit, elle le recrée. Si tu modifies ce qu'elle produit, elle le remet comme avant.
+
+La seule issue : **agir sur ce qu'elle lit**, son état désiré, au lieu d'agir sur ce qu'elle produit. Toute cette étape consiste à savoir trouver qui est ce propriétaire, où il lit son état désiré, et comment supprimer sans surprise.
+
+## La question à se poser
+
+Avant de toucher à un objet sur un cluster partagé, la bonne question n'est pas « comment je le modifie ? » mais « **qui le gère ?** ». Les leçons suivantes te donnent les outils pour y répondre : les `ownerReferences` dans le cluster, puis les labels de Helm, d'ArgoCD et des opérateurs au-delà.
+
+<Retenir>
+Un objet qui revient a un propriétaire, et ce propriétaire est une boucle qui ne s'arrête pas. Agis sur ce qu'elle lit, jamais sur ce qu'elle produit.
+</Retenir>

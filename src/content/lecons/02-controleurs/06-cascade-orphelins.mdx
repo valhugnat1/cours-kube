@@ -1,0 +1,90 @@
+---
+titre: "Supprimer en cascade, ou laisser des orphelins"
+etape: 2
+ordre: 6
+objectif: "Choisir la politique de suppression et mesurer ce qu'une suppression emporte avec elle."
+commandes:
+  - c: "kubectl delete deploy <nom>"
+    d: "background, par défaut : le parent part, les enfants suivent"
+  - c: "kubectl delete deploy <nom> --cascade=foreground"
+    d: "le parent attend que ses enfants soient supprimés"
+  - c: "kubectl delete deploy <nom> --cascade=orphan"
+    d: "le parent part, ses enfants restent sans propriétaire"
+  - c: "kubectl config current-context"
+    d: "vérifier le cluster visé avant toute suppression"
+quiz:
+  - q: "Tu fais `kubectl delete deploy web` sans option. Que deviennent ses ReplicaSets et ses pods ?"
+    choix:
+      - "Ils restent en place, sans propriétaire"
+      - "Ils sont supprimés à leur tour, juste après le Deployment"
+      - "Le Deployment attend qu'ils soient supprimés avant de disparaître"
+    bonne: 1
+    explication: "Le défaut est `background` : le parent disparaît tout de suite, les enfants suivent. Attendre les enfants, c'est `foreground`."
+  - q: "Après un `--cascade=orphan` involontaire puis un `helm uninstall`, il reste des ReplicaSets et des pods. Pourquoi ?"
+    choix:
+      - "Ils n'ont plus de propriétaire, et Helm ne supprime que les objets de sa release"
+      - "Helm n'a pas eu les droits de les supprimer"
+      - "La cascade est asynchrone, il suffit d'attendre"
+    bonne: 0
+    explication: "Le lien de propriété a été coupé. Plus rien ne les rattache à la release : ils survivent à `helm uninstall` et doivent être supprimés à la main."
+  - q: "Chez un client, tu t'apprêtes à supprimer un namespace de test. Quel est le réflexe ?"
+    choix:
+      - "Supprimer d'abord les pods un par un"
+      - "Vérifier le contexte courant : le bon cluster, le bon namespace"
+      - "Ajouter `--cascade=foreground` pour être prudent"
+    bonne: 1
+    explication: "Supprimer un namespace emporte tout son contenu, en une commande. Une erreur de contexte et c'est un namespace de production qui part."
+  - q: "Quand `--cascade=orphan` est-il utile ?"
+    choix:
+      - "Pour supprimer plus vite un gros Deployment"
+      - "Pour libérer les volumes avant la suppression"
+      - "Pour garder les pods vivants pendant qu'on remplace leur contrôleur"
+    bonne: 2
+    explication: "C'est un outil de migration délicate. Utilisé par erreur, il laisse des objets que plus personne ne gère."
+---
+
+Supprimer un propriétaire supprime ses enfants : c'est la **cascade**. C'est elle qui permet de retirer une application en supprimant seulement son parent. Mais il y a trois façons de le faire.
+
+```mermaid
+flowchart TD
+  N["<b>Namespace</b><br/>supprimé = tout son contenu"] --> D["<b>Deployment</b><br/>tu supprimes ici"]
+  D -->|"cascade"| RS["<b>ReplicaSet</b><br/>supprimé à son tour"]
+  RS -->|"cascade"| P["<b>Pods</b><br/>supprimés à leur tour"]
+```
+
+## Les trois politiques
+
+La politique se choisit avec l'option `--cascade` de `kubectl delete`.
+
+| Politique | Ce qui se passe |
+|---|---|
+| `background` (défaut) | Le parent disparaît tout de suite, les enfants suivent |
+| `foreground` | Le parent attend que tous ses enfants soient supprimés |
+| `orphan` | Le parent disparaît, ses enfants **restent**, sans propriétaire |
+
+Le `blockOwnerDeletion` vu dans les `ownerReferences` sert au mode `foreground` : c'est lui qui fait attendre le parent.
+
+## Les orphelins
+
+`orphan` est utile pour une migration délicate : garder les pods vivants pendant qu'on remplace le contrôleur. Il devient dangereux quand il est involontaire.
+
+```mermaid
+flowchart TD
+  D["<b>Deployment web</b><br/>supprimé en mode orphan"] -.->|"lien coupé"| RS["<b>ReplicaSet web-7d9f</b><br/>toujours là, sans parent"]
+  RS --> P["<b>Pods</b><br/>toujours là"]
+  H["<b>helm uninstall</b><br/>ne les connaît plus"] -.-> RS
+```
+
+Des objets orphelins ne sont plus gérés par personne au-dessus d'eux. Plus de mise à jour, plus de rollback ; un pod orphelin supprimé ou évincé n'est plus recréé. Et ils **survivent à `helm uninstall`**, qui ne supprime que les objets de sa release.
+
+## Le namespace, la plus destructive
+
+Supprimer un **namespace** supprime tout ce qu'il contient. Pratique en lab, c'est l'action la plus destructive que tu puisses faire en une commande chez un client. Vérifie le contexte avant, à chaque fois.
+
+<Piege>
+Un `kubectl delete namespace` lancé sur le mauvais contexte efface une plateforme entière. Le prompt de ton terminal doit afficher le contexte, et tu le relis avant d'appuyer sur Entrée.
+</Piege>
+
+<Retenir>
+Par défaut, supprimer le parent supprime ses enfants. `orphan` les laisse vivre sans propriétaire, et ils survivent à `helm uninstall`. Supprimer un namespace emporte tout : vérifie le contexte.
+</Retenir>

@@ -1,0 +1,76 @@
+---
+titre: "Agir au bon niveau : les réflexes à prendre"
+etape: 2
+ordre: 5
+objectif: "Pour chaque intention courante, choisir l'action qui ne sera ni annulée ni brutale."
+commandes:
+  - c: "kubectl rollout restart deploy/<nom>"
+    d: "redémarrer une application proprement, pod par pod"
+  - c: "kubectl delete pod <pod>"
+    d: "remplacer un pod précis : son ReplicaSet le recrée"
+  - c: "kubectl scale deploy <nom> --replicas=3"
+    d: "changer les réplicas, ponctuel : écrasé au prochain déploiement"
+quiz:
+  - q: "L'API a une fuite mémoire. Tu veux redémarrer toute l'application sans coupure. Que fais-tu ?"
+    choix:
+      - "`kubectl delete pod -l app=api`"
+      - "`kubectl rollout restart deploy/api`"
+      - "`kubectl scale deploy/api --replicas=0`, puis remonter"
+    bonne: 1
+    explication: "`rollout restart` remplace les pods un par un, comme une mise à jour. Supprimer tous les pods d'un coup coupe le service le temps qu'ils reviennent."
+  - q: "Un seul pod de l'API consomme anormalement. Peux-tu faire `kubectl delete pod` dessus ?"
+    choix:
+      - "Oui : tu sais que son ReplicaSet le remplacera"
+      - "Non : supprimer un pod est toujours interdit"
+      - "Non : il faut supprimer son ReplicaSet à la place"
+    bonne: 0
+    explication: "Supprimer un pod n'est pas interdit : c'est risqué quand tu ne sais pas qui le recrée. Ici tu le sais, c'est un outil comme un autre."
+  - q: "Pourquoi `kubectl scale rs web-7d9f --replicas=0` ne sert à rien ?"
+    choix:
+      - "Le ReplicaSet ignore les scales manuels"
+      - "Il faut d'abord supprimer ses pods"
+      - "Le Deployment controller réécrit aussitôt les réplicas du ReplicaSet"
+    bonne: 2
+    explication: "Le ReplicaSet appartient au Deployment, qui possède aussi son nombre de réplicas. Le Deployment controller le remet à sa valeur en moins d'une seconde."
+  - q: "Tu veux retirer une application installée par une release Helm. Que fais-tu ?"
+    choix:
+      - "Supprimer ses pods un par un, puis ses ReplicaSets"
+      - "Supprimer le parent, ici la release, et laisser la cascade faire le reste"
+      - "Supprimer ses ReplicaSets avec `--cascade=orphan`"
+    bonne: 1
+    explication: "On supprime toujours au sommet de la chaîne. Supprimer les enfants un par un est long, et ils sont recréés tant que le parent existe."
+---
+
+Tu sais maintenant trouver qui possède un objet. Reste à choisir le geste. À chaque niveau de la chaîne correspond une action, et une portée.
+
+```mermaid
+flowchart TD
+  V["<b>Values du chart, CRD</b><br/>enabled, replicas : durable"] --> D["<b>Deployment</b><br/>rollout restart, scale deploy"]
+  D --> RS["<b>ReplicaSet</b><br/>scale rs : annulé aussitôt"]
+  RS --> P["<b>Pod</b><br/>delete pod : remplacé"]
+```
+
+## Les réflexes à intérioriser
+
+Pour chaque intention, l'action réflexe (mauvaise) puis l'action correcte :
+
+- **Redémarrer une application** : pas `kubectl delete pod …`, mais `kubectl rollout restart deploy/…`. Les nouveaux pods sont créés proprement, un par un.
+- **Redémarrer un pod précis**, par exemple une fuite mémoire : `kubectl delete pod` est acceptable ici. Le ReplicaSet le remplace, et tu le sais.
+- **Changer le nombre de réplicas** : pas `kubectl scale rs …`, mais `kubectl scale deploy …`. Et sache que ce sera écrasé au prochain déploiement : le durable, ce sont les values du chart.
+- **Couper un composant qui a un HPA** : pas `--replicas=0`. Supprime ou désactive l'HPA d'abord, ou passe `enabled: false` côté chart.
+- **Changer une variable d'environnement** : pas `kubectl edit deploy …`. Modifie les values ou le manifeste versionné, puis redéploie. `edit` sert seulement pour un test dont tu sais qu'il sera perdu.
+- **Changer une config d'application** : pas `kubectl edit configmap …`, même règle. Et rappelle-toi qu'un pod ne relit pas un ConfigMap injecté en variable d'env sans redémarrer.
+- **Supprimer une application** : pas les pods, puis le ReplicaSet, puis… Supprime le **parent** (Deployment, release Helm, ressource personnalisée). La cascade fait le reste.
+- **Supprimer un objet géré par un opérateur** : pas `kubectl delete sts …`. Supprime ou modifie la ressource personnalisée qui le pilote.
+
+## Supprimer un pod n'est pas interdit
+
+La ligne « redémarrer un pod précis » le montre : `kubectl delete pod` n'est pas un geste interdit. Il est dangereux **quand tu ne sais pas qui le recrée**. Une fois que tu le sais, c'est un outil comme un autre.
+
+<Piege>
+`kubectl delete pod -l app=api` pour « redémarrer » tue tous les pods d'un coup : le service est coupé le temps qu'ils reviennent. `rollout restart` fait la même chose sans coupure.
+</Piege>
+
+<Retenir>
+Agis au niveau qui porte l'état désiré : rollout restart et scale sur le Deployment pour le ponctuel, values ou ressource personnalisée pour le durable, et suppression du parent pour tout retirer.
+</Retenir>

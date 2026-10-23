@@ -1,0 +1,90 @@
+---
+titre: "Helm, ArgoCD, opérateurs : les maîtres hors de vue"
+etape: 2
+ordre: 3
+objectif: "Identifier l'outil qui gère un objet avant d'y toucher, et prévoir ce que deviendra une modification manuelle."
+commandes:
+  - c: "kubectl get deploy <nom> -o yaml | yq '.metadata.labels, .metadata.annotations'"
+    d: "lire les marques laissées par Helm, ArgoCD ou Flux"
+  - c: "kubectl get all -l app.kubernetes.io/managed-by=Helm"
+    d: "lister les objets posés par Helm dans le namespace"
+  - c: "kubectl get deploy -l argocd.argoproj.io/instance"
+    d: "repérer les Deployments gérés par ArgoCD"
+quiz:
+  - q: "Un Deployment porte `app.kubernetes.io/managed-by: Helm`. Tu corriges une variable d'env avec `kubectl edit`. Que se passe-t-il ?"
+    choix:
+      - "Helm détecte la dérive et l'annule en quelques secondes"
+      - "Ta modification tient jusqu'au prochain `helm upgrade`, qui l'écrase sans prévenir"
+      - "Helm reporte ta modification dans les values de la release"
+    bonne: 1
+    explication: "Helm n'a pas de contrôleur : rien ne surveille la release entre deux commandes. Le prochain upgrade réapplique le manifeste rendu et efface ta modification."
+  - q: "Même correction sur un objet qui porte `argocd.argoproj.io/instance`, avec self-heal activé. Résultat ?"
+    choix:
+      - "Elle est annulée en quelques secondes ou minutes"
+      - "Elle tient jusqu'au prochain déploiement"
+      - "ArgoCD la recopie dans le dépôt git"
+    bonne: 0
+    explication: "ArgoCD a une boucle : en self-heal, toute dérive entre le cluster et git est corrigée très vite. Ta modification ne survit pas au temps de la vérifier."
+  - q: "Un pod PostgreSQL appartient à un StatefulSet, lui-même possédé par un objet `Cluster` d'un opérateur. Tu veux augmenter sa mémoire. Où agis-tu ?"
+    choix:
+      - "Sur le StatefulSet"
+      - "Sur le pod, avec `kubectl edit`"
+      - "Sur l'objet `Cluster`"
+    bonne: 2
+    explication: "L'opérateur réécrit le StatefulSet à partir du `Cluster`. Modifier le StatefulSet ne sert à rien : c'est la ressource personnalisée qui porte l'état désiré."
+  - q: "Pourquoi une modification `kubectl` sur un objet géré par ArgoCD est-elle pire qu'inutile ?"
+    choix:
+      - "Elle bloque les synchronisations suivantes"
+      - "Elle te donne l'illusion d'avoir corrigé"
+      - "Elle supprime l'application ArgoCD"
+    bonne: 1
+    explication: "Elle disparaît vite, mais tu crois avoir réglé le problème. Le vrai danger est le diagnostic faux qui en découle."
+---
+
+Le haut de la chaîne de propriété sort de Kubernetes. Pas d'`ownerReferences` pour le dire : il faut lire les labels et annotations. C'est là que les débutants se perdent.
+
+## Helm : pas de boucle, mais un écrasement différé
+
+Helm **n'a pas de contrôleur**. Aucune boucle ne surveille les objets d'une release. Si tu modifies un Deployment installé par Helm avec `kubectl edit`, ta modification tient… jusqu'au prochain `helm upgrade`, qui réapplique le manifeste rendu et l'écrase sans prévenir.
+
+Les objets Helm se reconnaissent ainsi :
+
+```yaml
+labels:
+  app.kubernetes.io/managed-by: Helm
+annotations:
+  meta.helm.sh/release-name: platform
+  meta.helm.sh/release-namespace: platform
+```
+
+## ArgoCD et Flux : une boucle, et elle est rapide
+
+Les outils GitOps, eux, **ont** un contrôleur. Avec le *self-heal* activé, toute dérive entre le cluster et le dépôt git est corrigée en quelques secondes ou minutes. Reconnaissables aux labels `argocd.argoproj.io/instance` ou `kustomize.toolkit.fluxcd.io/name`.
+
+```mermaid
+flowchart TD
+  E["<b>kubectl edit deploy api</b><br/>ta correction manuelle"] --> H["<b>Géré par Helm</b><br/>tient jusqu'au<br/>prochain helm upgrade"]
+  E --> A["<b>Géré par ArgoCD</b><br/>self-heal : annulé<br/>en secondes"]
+  H --> X["<b>Correction perdue</b><br/>sans avertissement"]
+  A --> X
+```
+
+## Les opérateurs : un propriétaire de plus
+
+Un opérateur, que tu verras à l'étape 9, est un contrôleur qui gère des objets à partir d'une ressource personnalisée (CRD). Un pod de base créé par un opérateur PostgreSQL a pour propriétaire un StatefulSet, lui-même propriété d'un objet `Cluster`.
+
+```mermaid
+flowchart TD
+  C["<b>Cluster</b>, ressource personnalisée<br/>c'est ici qu'on modifie"] -->|"l'opérateur génère"| S["<b>StatefulSet</b><br/>modifié = réécrit"]
+  S --> P["<b>Pod PostgreSQL</b>"]
+```
+
+Modifier le StatefulSet ne sert à rien : il faut modifier le `Cluster`.
+
+## Le réflexe chez un client
+
+**Avant de toucher à un objet, identifie l'outil qui le gère.** Une modification `kubectl` sur un objet géré par ArgoCD n'est pas seulement inutile, elle est trompeuse : tu croiras avoir corrigé quelque chose.
+
+<Retenir>
+Helm écrase au prochain upgrade, ArgoCD ou Flux en self-heal en quelques secondes, un opérateur réécrit depuis sa ressource personnalisée. Lis les labels avant d'agir.
+</Retenir>

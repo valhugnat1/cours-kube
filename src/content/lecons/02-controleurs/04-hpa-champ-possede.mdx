@@ -1,0 +1,81 @@
+---
+titre: "HPA : quand un champ a un autre propriétaire"
+etape: 2
+ordre: 4
+objectif: "Expliquer pourquoi un scale manuel ne tient pas sous un HPA, et quoi faire à la place."
+commandes:
+  - c: "kubectl get hpa"
+    d: "voir les autoscalers, leurs bornes et la cible actuelle"
+  - c: "kubectl get hpa <nom> -o yaml | yq '.status.conditions'"
+    d: "lire ScalingActive et sa raison"
+  - c: "kubectl delete hpa <nom>"
+    d: "retirer l'autoscaling avant un scale manuel (ponctuel)"
+quiz:
+  - q: "Un HPA cible `api` (min 2, max 10). Tu fais `kubectl scale deploy/api --replicas=8` avant un pic annoncé. La charge reste faible. Que se passe-t-il ?"
+    choix:
+      - "Le Deployment reste à 8 jusqu'au prochain déploiement"
+      - "L'HPA redescend le nombre de réplicas selon la charge"
+      - "L'HPA se met en pause parce que tu as touché au champ"
+    bonne: 1
+    explication: "`spec.replicas` appartient à l'HPA. Il constate que la charge ne justifie pas 8 et redescend, dans ses bornes."
+  - q: "Kubernetes récent, aucun autre outil : tu passes un Deployment avec HPA à 0. Que montrent les conditions de l'HPA ?"
+    choix:
+      - "`ScalingActive=False`, raison `ScalingDisabled` : il est en pause"
+      - "Rien : il remonte aussitôt à `minReplicas`"
+      - "L'HPA a été supprimé automatiquement"
+    bonne: 0
+    explication: "C'est le comportement documenté : un Deployment à 0 met l'HPA en pause. Il ne remonte pas tout seul tant que personne ne remet une valeur non nulle."
+  - q: "Après ton scale à 0, un collègue lance `helm upgrade`, qui réapplique `replicas: 2`. Que fait l'HPA ?"
+    choix:
+      - "Il reste en pause, le Deployment repasse à 0"
+      - "Il ignore le changement jusqu'au prochain pic de charge"
+      - "Il se réveille et impose au moins `minReplicas`"
+    bonne: 2
+    explication: "Dès qu'un acteur remet une valeur non nulle, l'HPA reprend la main. Sur une plateforme en chart parapluie, c'est le cas courant : ton 0 est annulé."
+  - q: "Tu dois couper un composant qui a un HPA, sur une plateforme déployée par chart parapluie. Quelle action tient ?"
+    choix:
+      - "`kubectl scale deploy … --replicas=0`"
+      - "Passer le composant à `enabled: false` dans les values, ou désactiver l'HPA"
+      - "Changer `minReplicas` avec `kubectl edit hpa`"
+    bonne: 1
+    explication: "On agit sur l'état désiré. Le scale direct est annulé par l'HPA réveillé, et l'edit de l'HPA est écrasé par le prochain helm upgrade."
+---
+
+Cas plus subtil : l'objet t'appartient, mais **un champ précis** est piloté par un contrôleur. L'exemple canonique est le HorizontalPodAutoscaler, ou HPA.
+
+## L'HPA écrit dans ton Deployment
+
+Un HPA cible un Deployment et écrit lui-même dans `spec.replicas`, selon la charge, entre `minReplicas` et `maxReplicas`. À partir de là, ce champ ne t'appartient plus.
+
+```mermaid
+flowchart TD
+  T["<b>Toi</b><br/>kubectl scale deploy/api"] -->|"écrit 5"| R["<b>spec.replicas = 5</b><br/>pour quelques secondes"]
+  R --> H["<b>HPA, min 1, max 3</b><br/>mesure la charge : faible"]
+  H -->|"réécrit"| R2["<b>spec.replicas = 1</b><br/>le champ est à lui"]
+```
+
+Tu fais `kubectl scale deploy/api --replicas=5` : l'HPA constate que la charge ne justifie pas 5 et redescend.
+
+## Et à zéro ? Sois précis
+
+Le cas `--replicas=0` dépend du contexte. Ne généralise pas.
+
+```mermaid
+flowchart TD
+  Z["<b>scale --replicas=0</b>"] --> P["<b>HPA en pause</b><br/>ScalingActive=False<br/>raison ScalingDisabled"]
+  P --> U["<b>Un autre acteur remet 2</b><br/>helm upgrade, ArgoCD, KEDA"]
+  U --> W["<b>HPA réveillé</b><br/>impose au moins minReplicas"]
+```
+
+- Sur un Kubernetes récent **sans autre outillage**, mettre un Deployment à 0 met l'HPA en pause. Il ne remonte pas tout seul : c'est le comportement documenté.
+- Mais dès qu'un autre acteur remet une valeur non nulle, l'HPA se réveille. Ce peut être un `helm upgrade` qui réapplique `replicas: 2` du chart, un ArgoCD en self-heal ou un ScaledObject KEDA. Dans une plateforme déployée par chart parapluie, c'est le cas courant : **ton 0 a été annulé** et tu ne sais pas par qui.
+
+## La bonne action
+
+Ne scale pas le Deployment. Agis sur l'état désiré : désactive ou supprime l'HPA, ou passe le composant à `enabled: false` dans les values du chart. Et **note ce que tu as observé**, pas ce que tu supposes : c'est l'objet de la dernière leçon de l'étape.
+
+Ce mécanisme de champ possédé s'appelle le *field ownership*, visible dans `metadata.managedFields`. Tu le retrouveras à l'étape 9 avec le server-side apply.
+
+<Retenir>
+Sous un HPA, `spec.replicas` ne t'appartient plus. À 0, l'HPA se met en pause, jusqu'à ce qu'un redéploiement le réveille. Pour couper un composant, agis sur l'HPA ou sur les values.
+</Retenir>
