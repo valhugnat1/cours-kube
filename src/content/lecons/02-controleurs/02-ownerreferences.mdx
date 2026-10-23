@@ -1,0 +1,82 @@
+---
+titre: "ownerReferences : remonter jusqu'au vrai propriétaire"
+etape: 2
+ordre: 2
+objectif: "Lire le propriétaire d'un objet en une commande et remonter la chaîne jusqu'à un fichier ou une personne."
+commandes:
+  - c: "kubectl get pod <pod> -o yaml | yq '.metadata.ownerReferences'"
+    d: "lire le propriétaire d'un objet"
+  - c: "kubectl get rs <rs> -o yaml | yq '.metadata.ownerReferences'"
+    d: "remonter d'un cran : le propriétaire du ReplicaSet"
+  - c: "kubectl describe pod <pod>"
+    d: "le propriétaire apparaît sur la ligne Controlled By"
+quiz:
+  - q: "Dans les `ownerReferences` d'un pod, tu lis `kind: ReplicaSet` et `controller: true`. Qu'est-ce que ça t'indique ?"
+    choix:
+      - "Que le pod a le droit de piloter le ReplicaSet"
+      - "Que le ReplicaSet gère ce pod : c'est sur lui, ou plus haut, qu'il faut agir"
+      - "Que le pod est protégé contre toute suppression"
+    bonne: 1
+    explication: "`controller: true` veut dire que le propriétaire gère l'objet et le remettra en conformité. On agit donc sur le propriétaire, pas sur le pod."
+  - q: "Tu remontes : Pod, ReplicaSet, Deployment. Le Deployment porte les labels d'une release Helm dont les values sont dans git. Où fais-tu la correction durable ?"
+    choix:
+      - "Sur le Deployment, avec `kubectl edit`"
+      - "Sur le ReplicaSet, puisque c'est lui qui crée les pods"
+      - "Dans les values du chart, versionnées dans git"
+    bonne: 2
+    explication: "On s'arrête au premier échelon où l'état désiré est un fichier versionné ou une personne. Ici, ce sont les values : modifier le Deployment serait écrasé au prochain déploiement."
+  - q: "Les `ownerReferences` d'un Deployment sont vides (`null`). Qu'en conclus-tu ?"
+    choix:
+      - "Aucun objet du cluster ne le possède : son état désiré vient d'une personne ou d'un outil externe"
+      - "Le Deployment est orphelin et va être supprimé par le ramasse-miettes"
+      - "Le Deployment est corrompu, il faut le recréer"
+    bonne: 0
+    explication: "Un objet sans ownerReference est en haut de la chaîne côté cluster. La suite se lit ailleurs : labels Helm, ArgoCD, ou un humain qui a fait kubectl apply."
+---
+
+Devant un objet qui « revient », le réflexe est simple : **lis ses `ownerReferences` et remonte**. Chaque objet créé par un contrôleur porte dans ses métadonnées la trace de son propriétaire.
+
+## Ce qu'on lit sur un pod
+
+Le champ `metadata.ownerReferences` du pod `web-7d9f8b6c4-x2k9p`, lu avec `yq` :
+
+```yaml
+- apiVersion: apps/v1
+  kind: ReplicaSet
+  name: web-7d9f8b6c4
+  uid: 3a1f…
+  controller: true
+  blockOwnerDeletion: true
+```
+
+Deux champs comptent :
+
+- **`controller: true`** : cet objet est *géré* par ce propriétaire. Le contrôleur vérifie sans cesse qu'il existe et qu'il correspond à ce qu'il attend. C'est la marque qu'il ne faut pas agir sur l'objet, mais sur son propriétaire.
+- **`blockOwnerDeletion: true`** : si on supprime le propriétaire en mode *foreground*, il attendra que cet enfant soit supprimé d'abord. Tu le retrouveras avec la cascade.
+
+`kubectl describe` affiche la même information sur la ligne `Controlled By:`.
+
+## Remonter, et remonter encore
+
+Le propriétaire a souvent lui-même un propriétaire. La chaîne complète sort même du cluster :
+
+```mermaid
+flowchart TD
+  P["<b>Pod</b><br/>web-7d9f8b6c4-x2k9p"] -->|"controller"| RS["<b>ReplicaSet</b><br/>web-7d9f8b6c4"]
+  RS -->|"controller"| D["<b>Deployment</b><br/>web, ownerReferences vide"]
+  D -->|"labels, annotations"| H["<b>Helm ou ArgoCD</b><br/>hors des ownerReferences"]
+  H --> G["<b>values.yaml dans git</b><br/>correction durable ici"]
+  G --> U["<b>Un humain</b><br/>qui décide"]
+```
+
+À chaque échelon, la question est la même : *qui écrit l'état désiré de cet objet ?* Tu t'arrêtes au **premier échelon où la réponse est un fichier versionné ou une personne**. C'est là que se fait la correction durable.
+
+Quand les `ownerReferences` sont vides, tu es au sommet de la chaîne côté Kubernetes. Pour un Deployment, c'est le cas normal : personne dans le cluster ne le possède. La suite se lit dans ses labels et annotations, c'est la leçon suivante.
+
+<Piege>
+Corriger au premier échelon trouvé, le ReplicaSet ou le Deployment, donne une correction qui tient quelques secondes ou jusqu'au prochain déploiement. Remonte jusqu'au fichier ou à la personne.
+</Piege>
+
+<Retenir>
+`ownerReferences` avec `controller: true` désigne qui gère l'objet. Remonte la chaîne jusqu'au premier fichier versionné ou à la première personne : c'est là qu'on corrige.
+</Retenir>

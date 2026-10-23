@@ -1,0 +1,79 @@
+---
+titre: "Correction ponctuelle, correction durable, et l'écrire"
+etape: 2
+ordre: 8
+objectif: "Séparer correction ponctuelle et durable, laisser une trace, et distinguer le vérifié du supposé dans un compte rendu."
+commandes:
+  - c: "kubectl annotate deploy api ops/manual-change=\"scaled to 3 by hugo 2026-09-16, revert at next deploy\""
+    d: "laisser une trace d'action manuelle sur l'objet lui-même"
+  - c: "kubectl version"
+    d: "noter la version du cluster dans un compte rendu"
+quiz:
+  - q: "En incident, tu fais `kubectl rollout restart` et le service revient. Qu'est-ce qui manque encore ?"
+    choix:
+      - "Rien, l'incident est clos"
+      - "Une trace de ton action, et le ticket ou la PR de la correction durable"
+      - "Un `helm rollback` pour annuler ta commande"
+    bonne: 1
+    explication: "La correction ponctuelle a rétabli le service. Sans trace ni correction durable, le problème reviendra et personne ne saura ce qui a été fait."
+  - q: "Lequel de ces comptes rendus respecte la discipline vérifié / supposé ?"
+    choix:
+      - "« L'HPA remet le service à 1 quand on scale à 0. »"
+      - "« D'après la doc, l'HPA se met en pause, donc ça ne remontera pas. »"
+      - "« Vérifié sur preview-42 (K8s 1.31) : scale à 0 annulé après un helm upgrade. Non vérifié sans redéploiement. »"
+    bonne: 2
+    explication: "Il dit où et sur quelle version c'est observé, et ce qui n'a pas été testé. Les deux autres présentent une supposition comme un fait."
+  - q: "Ta correction ponctuelle sera perdue au prochain déploiement. Qu'en penser ?"
+    choix:
+      - "C'est son rôle : l'erreur serait de ne pas dire qu'elle est ponctuelle"
+      - "C'est un défaut : il ne faut jamais faire de correction ponctuelle"
+      - "C'est évitable en appliquant avec `kubectl apply --force`"
+    bonne: 0
+    explication: "La correction ponctuelle rétablit le service maintenant, par construction temporaire. Le problème n'est pas de la faire, c'est de la taire."
+  - q: "Tu as scalé `api` à 3 à la main sur un environnement partagé. Où laisser la note sur l'objet lui-même ?"
+    choix:
+      - "Dans un label `manual=true`"
+      - "Dans une annotation, par exemple `ops/manual-change`"
+      - "Dans un commentaire YAML ajouté avec `kubectl edit`"
+    bonne: 1
+    explication: "Une annotation porte de l'information libre pour les humains et les outils. Un label sert à sélectionner, et l'API ne conserve pas les commentaires YAML."
+---
+
+Sur un incident, il y a souvent deux temps. Les confondre, ou oublier le second, c'est la garantie de revoir le même incident.
+
+```mermaid
+flowchart TD
+  I["<b>Incident</b>"] --> P["<b>Correction ponctuelle</b><br/>rollout restart, scale, edit"]
+  P --> T["<b>Trace</b><br/>annotation, message au canal"]
+  P --> R["<b>Ticket ou PR</b><br/>ouvert dans la foulée"]
+  R --> V["<b>Correction durable</b><br/>values, manifeste dans git"]
+```
+
+## Les deux temps
+
+1. **La correction ponctuelle** : `rollout restart`, `scale`, `edit`. Elle rétablit le service maintenant. Elle **sera perdue** au prochain déploiement, par construction. Ce n'est pas un défaut, c'est son rôle.
+2. **La correction durable** : le changement dans la configuration versionnée. Values du chart, manifeste dans git, ressource personnalisée. Elle survit aux déploiements.
+
+L'erreur n'est pas de faire une correction ponctuelle. L'erreur est de **ne pas dire qu'elle est ponctuelle**.
+
+## Trois habitudes
+
+- Après une action manuelle sur un environnement partagé, **laisse une trace** : un message dans le canal de l'environnement, ou une annotation sur l'objet, comme `ops/manual-change`.
+- **Ouvre dans la foulée** le ticket ou la PR de la correction durable.
+- Dans tout compte rendu, **sépare ce que tu as vérifié de ce que tu supposes**.
+
+## Vérifié ou supposé
+
+Reprends le cas de l'HPA. Voici deux façons de rapporter la même observation :
+
+> ❌ « L'HPA remet le service à 1 quand on scale à 0. »
+
+> ✅ « Vérifié sur preview-42 (K8s 1.31, chart 3.8) : scale à 0 annulé en ~30 s après un helm upgrade. Non vérifié sur un cluster sans redéploiement. »
+
+La première est une généralisation, fausse dans certains contextes. La seconde dit **où**, **sur quelle version**, **ce qui a été observé** et **ce qui n'a pas été testé**. Un collègue peut s'appuyer dessus sans se faire piéger.
+
+Cette discipline est la même que celle exigée en communication client, à l'étape 23. Elle commence ici, dans tes notes de lab : le lab de cette étape te demande justement ce compte rendu en trois lignes.
+
+<Retenir>
+Ponctuel : rétablit maintenant, perdu au prochain déploiement, et ça doit se dire. Durable : dans la config versionnée. Et dans tout compte rendu, le vérifié d'un côté, le supposé de l'autre.
+</Retenir>

@@ -1,0 +1,135 @@
+---
+titre: "Lab : propriétaires, HPA, cascade et finalizers"
+etape: 2
+ordre: 90
+type: lab
+duree: 12
+objectif: "Remonter une chaîne de propriété, perdre contre une boucle, observer l'HPA et débloquer un finalizer sur ton cluster kind."
+---
+
+Sur ton PC, cluster kind `lab` de l'étape 0, avec le `web.yaml` du lab de l'étape 1 (Deployment `web`, 2 réplicas, `nginx:1.27`, et son Service).
+
+## 1. Prépare le terrain
+
+```bash
+kubectl config current-context    # doit être kind-lab
+kubectl create namespace lab2 && kubens lab2
+kubectl apply -f web.yaml
+kubectl get deploy,rs,pods
+```
+
+## 2. Lis la chaîne de propriété
+
+```bash
+kubectl get pods
+kubectl get pod <un pod> -o yaml | yq '.metadata.ownerReferences'
+kubectl get rs <le rs> -o yaml | yq '.metadata.ownerReferences'
+kubectl get deploy web -o yaml | yq '.metadata.ownerReferences'   # null : le sommet, c'est toi
+```
+
+Le pod pointe vers le ReplicaSet, le ReplicaSet vers le Deployment, et le Deployment vers personne.
+
+## 3. Agis au mauvais niveau, regarde la boucle gagner
+
+Premier terminal : `kubectl get rs -w`. Second terminal :
+
+```bash
+kubectl scale rs <le rs> --replicas=0
+```
+
+Le ReplicaSet passe à 0 puis revient à 2 en moins d'une seconde : le Deployment controller a réécrit son `spec.replicas`.
+
+## 4. Orpheline un pod sans le supprimer
+
+Retire-lui le label qui le lie au ReplicaSet :
+
+```bash
+kubectl label pod <un pod> app-
+kubectl get pods --show-labels
+kubectl get pod <l'orphelin> -o yaml | yq '.metadata.ownerReferences'   # null
+```
+
+Tu as maintenant 3 pods. Le ReplicaSet compte ses pods par label : il en a créé un nouveau, et l'ancien vit encore, sans propriétaire. Supprime l'orphelin à la main : personne ne le recrée.
+
+```bash
+kubectl delete pod <l'orphelin>
+```
+
+## 5. Redémarre proprement
+
+```bash
+kubectl rollout restart deploy/web
+kubectl get pods -w
+```
+
+Les pods sont remplacés un par un, le service ne s'interrompt pas. Compare avec `kubectl delete pod -l app=web`, qui tue tout d'un coup.
+
+## 6. Installe metrics-server
+
+L'HPA a besoin de métriques. Sur kind, metrics-server doit accepter les certificats des kubelets :
+
+```bash
+kubectl apply -f https://github.com/kubernetes-sigs/metrics-server/releases/latest/download/components.yaml
+kubectl patch -n kube-system deploy metrics-server --type=json \
+  -p '[{"op":"add","path":"/spec/template/spec/containers/0/args/-","value":"--kubelet-insecure-tls"}]'
+kubectl -n kube-system rollout status deploy/metrics-server
+kubectl top nodes                 # doit répondre au bout d'une minute
+```
+
+## 7. Ajoute un HPA et observe le comportement réel
+
+L'HPA a besoin d'une request CPU. Dans `web.yaml`, sous le conteneur `web` :
+
+```yaml
+          resources:
+            requests:
+              cpu: 50m
+```
+
+```bash
+kubectl apply -f web.yaml
+kubectl autoscale deploy web --min=1 --max=3 --cpu-percent=50
+kubectl get hpa -w
+```
+
+Dans un autre terminal, scale à 0, lis l'HPA, puis simule un redéploiement :
+
+```bash
+kubectl scale deploy web --replicas=0
+kubectl get hpa web -o yaml | yq '.status.conditions'   # cherche ScalingActive et sa raison
+kubectl apply -f web.yaml                                # remet replicas: 2, comme un redéploiement
+kubectl get deploy web -w                                # que fait l'HPA maintenant ?
+```
+
+**Écris en trois lignes ce que tu as observé**, avec la version de Kubernetes (`kubectl version`) et ce que tu n'as pas testé. C'est l'exercice de la leçon sur le vérifié et le supposé, pas une formalité.
+
+## 8. Cascade et orphelins
+
+```bash
+kubectl delete hpa web
+kubectl delete deploy web --cascade=orphan
+kubectl get rs,pods               # tout est encore là, sans Deployment
+kubectl delete rs --all           # les pods disparaissent : le RS est leur propriétaire direct
+```
+
+## 9. Un finalizer bloquant, en version contrôlée
+
+Pose un finalizer factice sur un ConfigMap, tente de le supprimer, puis débloque :
+
+```bash
+kubectl create configmap demo --from-literal=a=b
+kubectl patch configmap demo -p '{"metadata":{"finalizers":["lab/hold"]}}' --type=merge
+kubectl delete configmap demo --wait=false
+kubectl get configmap demo -o yaml | yq '.metadata.deletionTimestamp, .metadata.finalizers'   # bloqué
+kubectl patch configmap demo -p '{"metadata":{"finalizers":null}}' --type=merge               # disparaît aussitôt
+```
+
+Ici, aucun ménage n'était attendu derrière `lab/hold` : forcer ne laisse rien. Chez un client, ce serait un disque ou un load balancer.
+
+## 10. Nettoie
+
+```bash
+kubectl delete namespace lab2
+```
+
+Garde metrics-server, il resservira.

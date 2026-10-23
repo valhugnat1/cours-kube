@@ -1,0 +1,81 @@
+---
+titre: "Finalizers : pourquoi un objet reste en Terminating"
+etape: 2
+ordre: 7
+objectif: "Expliquer ce qu'est un finalizer, diagnostiquer un Terminating bloqué, et savoir pourquoi forcer est un dernier recours."
+commandes:
+  - c: "kubectl get pvc <nom> -o yaml | yq '.metadata.finalizers'"
+    d: "lister les verrous qui bloquent la suppression"
+  - c: "kubectl get <type> <nom> -o yaml | yq '.metadata.deletionTimestamp'"
+    d: "confirmer qu'une suppression est en cours"
+  - c: "kubectl patch pvc <nom> -p '{\"metadata\":{\"finalizers\":null}}' --type=merge"
+    d: "retirer les finalizers : dernier recours, ménage non fait"
+quiz:
+  - q: "Un PVC reste en `Terminating` depuis une heure. Que regardes-tu en premier ?"
+    choix:
+      - "Ses `metadata.finalizers`, et quel contrôleur les a posés"
+      - "Les logs du kubelet du nœud"
+      - "Le quota du namespace"
+    bonne: 0
+    explication: "Un objet reste en Terminating tant qu'un finalizer est présent. La question est : qui l'a posé, et pourquoi ne le retire-t-il pas ?"
+  - q: "Que fait l'API server quand tu supprimes un objet qui porte un finalizer ?"
+    choix:
+      - "Il refuse la suppression avec une erreur"
+      - "Il le marque `Terminating` et attend que la liste des finalizers soit vide"
+      - "Il le supprime aussitôt puis prévient le contrôleur"
+    bonne: 1
+    explication: "La suppression est acceptée mais suspendue : l'objet reçoit un `deletionTimestamp` et reste visible tant que chaque contrôleur n'a pas retiré son verrou."
+  - q: "L'opérateur qui gérait des ressources a été désinstallé avant elles. Elles restent en `Terminating`. Pourquoi ?"
+    choix:
+      - "L'API server attend un redémarrage du control plane"
+      - "La cascade foreground attend des enfants déjà partis"
+      - "Le contrôleur qui devait retirer son finalizer n'existe plus"
+    bonne: 2
+    explication: "C'est le cas typique : personne n'est plus là pour faire le ménage et retirer le verrou. D'où l'ordre à respecter : ressources d'abord, opérateur ensuite."
+  - q: "Tu retires à la main le finalizer d'un Service de type LoadBalancer bloqué. Quel risque prends-tu ?"
+    choix:
+      - "Le Service est recréé aussitôt par Kubernetes"
+      - "Le LoadBalancer cloud peut continuer d'exister, et d'être facturé"
+      - "Le namespace entier passe en Terminating"
+    bonne: 1
+    explication: "Retirer le finalizer débloque l'objet, mais le ménage prévu n'a pas été fait. La ressource externe reste, orpheline et payante."
+---
+
+Tu supprimes un objet, et il reste affiché en `Terminating`. Indéfiniment. Ce n'est pas un bug : c'est un **finalizer** qui fait son travail, ou qui attend quelqu'un qui ne viendra plus.
+
+## Un verrou posé par un contrôleur
+
+Un objet peut porter dans `metadata.finalizers` une liste de verrous posés par des contrôleurs. Tant qu'un finalizer est présent, l'API server marque l'objet `Terminating` mais ne le supprime pas.
+
+Le contrôleur concerné est censé faire son ménage, puis retirer son finalizer. Ce ménage, c'est souvent une ressource **hors du cluster** : détacher un disque, supprimer un LoadBalancer cloud, nettoyer une entrée DNS.
+
+```mermaid
+flowchart TD
+  D["<b>kubectl delete</b>"] --> T["<b>Terminating</b><br/>deletionTimestamp posé"]
+  T --> F{{"<b>Reste-t-il des finalizers ?</b>"}}
+  F -->|"oui"| C["<b>Le contrôleur fait le ménage</b><br/>disque, LB, DNS, puis retire son verrou"]
+  C --> F
+  F -->|"non"| G["<b>Objet supprimé</b>"]
+```
+
+Un exemple que tu croiseras : `kubernetes.io/pvc-protection` sur un PVC, qui empêche de supprimer un volume encore utilisé par un pod.
+
+## Quand ça bloque
+
+Le cas typique : le contrôleur qui devait retirer le finalizer **n'existe plus**. Un opérateur désinstallé avant ses ressources, ou un namespace supprimé avant le contrôleur qui y vivait. La boucle du schéma n'a plus personne pour la faire tourner.
+
+Retirer le finalizer à la main débloque l'objet, avec un `kubectl patch` qui le met à `null`.
+
+## Pourquoi c'est un dernier recours
+
+Forcer, c'est sauter le ménage. Ce qu'il devait nettoyer reste derrière : un disque cloud, un LoadBalancer, un enregistrement DNS qui continueront d'exister, **et d'être facturés**. Ce sont des ressources orphelines, que personne ne verra plus depuis le cluster.
+
+Avant de forcer, demande-toi toujours : **qui a posé ce finalizer, et pourquoi ne le retire-t-il pas ?** Souvent, la vraie réparation est de remettre le contrôleur en état, ou de faire à la main le ménage qu'il aurait fait.
+
+<Piege>
+Un tuto trouvé en ligne propose de retirer tous les finalizers pour débloquer un namespace. Ça marche, et ça laisse des disques et des load balancers facturés chez le client. Identifie d'abord le contrôleur absent.
+</Piege>
+
+<Retenir>
+Un finalizer est un verrou : l'objet reste en Terminating tant que son contrôleur n'a pas fait le ménage. Le retirer à la main débloque, mais laisse le ménage non fait. Dernier recours.
+</Retenir>
