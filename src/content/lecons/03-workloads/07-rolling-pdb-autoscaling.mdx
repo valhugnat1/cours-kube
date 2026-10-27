@@ -1,0 +1,93 @@
+---
+titre: "Rester debout pendant les changements : rollout et PDB"
+etape: 3
+ordre: 7
+objectif: "Régler un rolling update sans perte de capacité, dire ce qu'un PDB protège et comment il peut bloquer une mise à jour de cluster."
+commandes:
+  - c: "kubectl rollout status deploy/<nom>"
+    d: "suivre un déploiement jusqu'au bout"
+  - c: "kubectl get pdb -A"
+    d: "les budgets de perturbation, avec ALLOWED DISRUPTIONS"
+  - c: "kubectl drain <nœud> --ignore-daemonsets"
+    d: "vider un nœud avant maintenance, en respectant les PDB"
+  - c: "kubectl get hpa"
+    d: "les autoscalers horizontaux et leur cible"
+quiz:
+  - q: "Mise à jour du cluster chez un client : le `drain` d'un nœud ne finit jamais. Le PDB de la base dit `minAvailable: 3`, pour 3 réplicas. Pourquoi ça bloque ?"
+    choix:
+      - "Le drain attend que la base soit passée en Guaranteed"
+      - "Aucun pod ne peut partir sans passer sous 3 : le budget autorisé est de 0"
+      - "Un PDB interdit tout drain tant qu'il existe"
+    bonne: 1
+    explication: "Avec `minAvailable` égal au nombre de réplicas, aucune perturbation volontaire n'est permise : le nœud ne peut jamais être vidé. `maxUnavailable: 1` ou `minAvailable: 2` laisse passer un pod à la fois."
+  - q: "Un nœud qui porte deux réplicas de la base tombe en panne matérielle. Le PDB `minAvailable: 2` les protège-t-il ?"
+    choix:
+      - "Non : un PDB ne couvre que les perturbations volontaires, comme un drain"
+      - "Oui : Kubernetes garde les pods en vie jusqu'à leur remplacement"
+      - "Oui, s'il est combiné à une anti-affinité"
+    bonne: 0
+    explication: "Le PDB est consulté par les actions volontaires (drain, autoscaler qui retire un nœud). Une panne ne demande la permission de personne. Contre ça, c'est l'anti-affinité qui répartit les réplicas."
+  - q: "Ton API tourne à 2 réplicas, et le client exige de ne jamais passer sous 2 pods prêts pendant un déploiement. Quelle stratégie ?"
+    choix:
+      - "`Recreate`"
+      - "`RollingUpdate` avec les valeurs par défaut"
+      - "`RollingUpdate` avec `maxSurge: 1` et `maxUnavailable: 0`"
+    bonne: 2
+    explication: "`maxUnavailable: 0` interdit de descendre sous la capacité, `maxSurge: 1` autorise un pod de plus pendant la transition. `Recreate` coupe tout, et les 25 % par défaut peuvent retirer un pod."
+  - q: "Sur GKE, juste après l'installation de la plateforme, une dizaine de pods sont `Pending` puis démarrent tous en quelques minutes. Que s'est-il passé ?"
+    choix:
+      - "Les startup probes ont mis du temps à réussir"
+      - "Le Cluster Autoscaler a ajouté des nœuds pour les pods en attente"
+      - "Le VPA a réduit les requests jusqu'à ce que tout tienne"
+    bonne: 1
+    explication: "Le Cluster Autoscaler, ou Karpenter, ajoute des nœuds quand des pods restent `Pending` faute de ressources. Cette vague de Pending qui se résorbe est normale."
+---
+
+Un cluster client bouge tout le temps : tes déploiements, ses mises à jour de nœuds, ses autoscalers. Trois mécanismes décident si la plateforme reste debout pendant ces changements.
+
+## Les stratégies de mise à jour
+
+Un Deployment a une `strategy` :
+
+- `RollingUpdate` (défaut), réglée par `maxSurge` (pods **en plus** autorisés pendant la transition, 25 % par défaut) et `maxUnavailable` (pods **en moins** tolérés, 25 % par défaut). `maxSurge: 1, maxUnavailable: 0` : jamais moins de capacité que prévu, un pod de plus pendant le déploiement.
+- `Recreate` : tout couper, puis tout relancer. Pour ce qui ne supporte pas deux versions en parallèle, ou un volume `ReadWriteOnce` qu'un seul pod peut monter (étape 5).
+
+Un StatefulSet met à jour **dans l'ordre inverse** (`db-2` d'abord, `db-0` en dernier) et attend que chaque pod soit `Ready` avant le suivant. `partition` limite la mise à jour aux index supérieurs ou égaux à N : un canari.
+
+## Le PodDisruptionBudget
+
+Un PDB dit combien de pods d'un groupe doivent rester disponibles pendant une **perturbation volontaire** : `kubectl drain` pour une mise à jour de cluster, autoscaler qui retire un nœud.
+
+```yaml
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata: { name: db }
+spec:
+  minAvailable: 2          # ou maxUnavailable: 1
+  selector:
+    matchLabels: { app: db }
+```
+
+```mermaid
+flowchart TD
+  %% scene: Le drain demande :: La mise à jour du cluster vide un nœud. Pour chaque pod, le drain demande la permission au PDB. :: D, D>B, B
+  %% scene: Budget disponible :: 3 réplicas, `minAvailable: 2` : un pod peut partir. Il est recréé ailleurs, puis le suivant passe. :: B>OK, OK
+  %% scene: Budget nul :: `minAvailable: 3` pour 3 réplicas : aucun pod ne peut partir. Le drain attend, la mise à jour du cluster est bloquée. :: !B>KO, !KO
+  %% scene: La panne ne demande rien :: Une panne matérielle n'est pas volontaire. Le PDB n'est pas consulté, et ne protège pas. :: !PN, !PN>LOST, !LOST
+  D["<b>kubectl drain</b><br/>mise à jour du cluster"] --> B{{"<b>PDB de la base</b><br/>3 réplicas"}}
+  B -->|"minAvailable: 2"| OK["<b>Un pod part</b><br/>recréé ailleurs, au suivant"]
+  B -->|"minAvailable: 3"| KO["<b>Drain bloqué</b><br/>mise à jour à l'arrêt"]
+  PN["<b>Panne matérielle</b><br/>involontaire"] -.->|"sans demander"| LOST["<b>Pods perdus</b><br/>PDB non consulté"]
+```
+
+Sans PDB, une mise à jour de cluster peut vider d'un coup un nœud qui porte les 3 réplicas de la base. Avec un PDB trop strict, le nœud ne se vide **jamais** : c'est un piège tout aussi réel.
+
+## L'autoscaling
+
+- **HPA** (étape 2) : ajuste `replicas` selon CPU, mémoire ou métriques custom. Il lui faut des `requests` et metrics-server.
+- **VPA** : ajuste les `requests` selon la consommation observée. En mode `Off`, il recommande seulement : utile pour dimensionner une plateforme sur un cluster client sans deviner. Ne combine pas HPA et VPA sur la même métrique.
+- **Cluster Autoscaler, Karpenter** : ajoutent des **nœuds** quand des pods restent `Pending` faute de ressources. D'où la vague de `Pending` qui se résorbe en quelques minutes au début d'un déploiement sur GKE.
+
+<Retenir>
+`maxSurge` et `maxUnavailable` règlent la capacité pendant un rollout. Un PDB protège des perturbations volontaires, pas des pannes, et trop strict il bloque la mise à jour du cluster.
+</Retenir>

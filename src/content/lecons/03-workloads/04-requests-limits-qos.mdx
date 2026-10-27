@@ -1,0 +1,91 @@
+---
+titre: "Requests pour placer, limits pour plafonner"
+etape: 3
+ordre: 4
+objectif: "Lire les ressources d'un conteneur, prévoir sa classe de QoS, et reconnaître Insufficient cpu, OOMKilled et Evicted."
+commandes:
+  - c: "kubectl top pod"
+    d: "la consommation réelle des pods (metrics-server requis)"
+  - c: "kubectl describe node <nœud>"
+    d: "section Allocated resources : les requests réservées sur le nœud"
+  - c: "kubectl get pod <pod> -o yaml | yq '.status.qosClass'"
+    d: "la classe de QoS calculée pour le pod"
+  - c: "kubectl get pods -A --field-selector=status.phase=Failed"
+    d: "repérer les pods Evicted qui s'accumulent"
+quiz:
+  - q: "Un pod de l'API redémarre toutes les heures. `describe` montre `Last State: Terminated, Reason: OOMKilled`. Qu'est-ce qui a été dépassé ?"
+    choix:
+      - "La request mémoire"
+      - "La limit mémoire"
+      - "La limit CPU"
+    bonne: 1
+    explication: "La mémoire est incompressible : dépasser la limit tue le conteneur. Dépasser la limit CPU ralentit seulement (throttling). La request ne plafonne rien, elle réserve."
+  - q: "Un pod reste `Pending` avec `FailedScheduling: Insufficient cpu`. Pourtant `kubectl top node` montre les nœuds à 15 % de CPU. Comment est-ce possible ?"
+    choix:
+      - "metrics-server affiche des valeurs fausses"
+      - "Le scheduler compte la consommation de la veille"
+      - "Le scheduler place selon les requests réservées, pas selon la consommation réelle"
+    bonne: 2
+    explication: "Un nœud peut être plein au sens du scheduler (requests à 100 %) tout en étant presque inactif. `top` montre le réel, `describe node` les requests : il faut les deux vues."
+  - q: "Un nœud manque de mémoire. Il porte une base (requests = limits), une API (requests seules) et un pod sans aucune ressource déclarée. Lequel est expulsé en premier ?"
+    choix:
+      - "Le pod sans ressources, en BestEffort"
+      - "L'API, en Burstable"
+      - "La base, la plus gourmande"
+    bonne: 0
+    explication: "L'éviction suit la QoS : BestEffort d'abord, puis Burstable, Guaranteed en dernier. La base, en Guaranteed, est la mieux protégée."
+---
+
+Les `resources` d'un conteneur cachent deux mécanismes que tout le monde confond : la **réservation** et le **plafond**. Ils servent à des moments différents, et leurs symptômes n'ont rien à voir.
+
+```yaml
+resources:
+  requests:
+    cpu: 500m        # 0,5 cœur : sert au scheduling et au partage garanti
+    memory: 512Mi
+  limits:
+    cpu: "2"         # au-delà : ralenti (throttling)
+    memory: 1Gi      # au-delà : TUÉ (OOMKilled)
+```
+
+```mermaid
+flowchart TD
+  %% scene: La request réserve :: Le scheduler cherche un nœud où la somme des requests tient. C'est aussi la part garantie en cas de contention. :: R, R>N, N
+  %% scene: Aucun nœud ne convient :: Le pod reste `Pending`, avec `FailedScheduling: Insufficient cpu` ou `memory`. :: !R>P, !P
+  %% scene: Trop de CPU :: La CPU est compressible : au-delà de la limit, le conteneur est ralenti, pas tué. :: N>C, C
+  %% scene: Trop de mémoire :: La mémoire est incompressible : au-delà de la limit, le conteneur est tué. `OOMKilled` dans `Last State`, RESTARTS monte. :: N>M, !M
+  R["<b>requests</b><br/>ce que le scheduler réserve"] -->|"tient sur un nœud"| N["<b>Pod Running</b><br/>sur ce nœud"]
+  R -->|"ne tient nulle part"| P["<b>Pending</b><br/>Insufficient cpu"]
+  N -->|"dépasse limits.cpu"| C["<b>Throttling</b><br/>ralenti, pas tué"]
+  N -->|"dépasse limits.memory"| M["<b>OOMKilled</b><br/>tué, redémarré"]
+```
+
+## Requests et limits
+
+**Requests** : ce que le scheduler réserve sur le nœud. Un pod dont les requests ne tiennent sur aucun nœud reste `Pending`. C'est aussi sa part garantie quand le nœud est sous tension.
+
+**Limits** : le plafond appliqué par le cgroup (étape 0). Dépasser la CPU ralentit ; dépasser la mémoire tue, et le pod affiche `OOMKilled` dans `Last State`.
+
+## Les classes de QoS
+
+Kubernetes déduit une classe de chaque pod. Elle décide qui part en premier quand un nœud manque de mémoire.
+
+| Classe | Condition | Sous pression mémoire |
+|---|---|---|
+| `Guaranteed` | requests = limits, CPU et mémoire, tous conteneurs | Expulsé en dernier |
+| `Burstable` | au moins une request, pas Guaranteed | Après les BestEffort |
+| `BestEffort` | ni requests ni limits | Expulsé en premier |
+
+Des pods `BestEffort` sur un cluster client sont un signal d'alarme : premières victimes d'une éviction, et ils faussent le scheduling puisqu'ils ne réservent rien. Les bases d'une plateforme sont typiquement `Guaranteed`.
+
+**Éviction** : quand le kubelet voit le nœud à court de mémoire ou de disque, il expulse des pods (statut `Evicted`) dans cet ordre. Le pod n'est pas redémarré sur place : son contrôleur en recrée un ailleurs. Des `Evicted` qui s'accumulent signalent un nœud sous-dimensionné.
+
+<Piege>
+`kubectl top pod` montre la consommation réelle ; `describe node` montre les requests allouées. Un nœud peut être plein pour le scheduler tout en dormant, et l'inverse. Regarde toujours les deux.
+</Piege>
+
+Dernier cas : `nvidia.com/gpu: 1` est une ressource étendue. Elle se met en `limits` (la request suit), et un GPU ne se partage pas par défaut. Étape 15.
+
+<Retenir>
+La request place et garantit ; la limit plafonne. CPU dépassée : ralentie. Mémoire dépassée : `OOMKilled`. Sous pression, BestEffort part en premier, Guaranteed en dernier.
+</Retenir>

@@ -1,0 +1,88 @@
+---
+titre: "Le pod choisit son nœud : selector et affinités"
+etape: 3
+ordre: 5
+objectif: "Lire un nodeSelector, une affinité ou une anti-affinité, et prévoir quand elle laisse un pod en Pending."
+commandes:
+  - c: "kubectl get nodes --show-labels"
+    d: "les labels des nœuds, que visent nodeSelector et affinités"
+  - c: "kubectl get pods -o wide"
+    d: "sur quel nœud chaque pod a atterri"
+  - c: "kubectl describe pod <pod> | grep -A3 FailedScheduling"
+    d: "le motif exact d'un pod Pending"
+quiz:
+  - q: "Un chart déploie 3 réplicas d'une base avec une `podAntiAffinity` `required` sur `kubernetes.io/hostname`. Le cluster client a 2 nœuds. Que se passe-t-il ?"
+    choix:
+      - "Le troisième pod reste `Pending`, `didn't match pod anti-affinity rules`"
+      - "Le troisième pod se place sur un nœud déjà occupé, avec un avertissement"
+      - "Le StatefulSet réduit tout seul à 2 réplicas"
+    bonne: 0
+    explication: "`required` est une contrainte dure : pas de nœud qui la respecte, pas de placement. En `preferred`, le troisième pod aurait démarré à côté d'un autre."
+  - q: "Une anti-affinité `requiredDuringSchedulingIgnoredDuringExecution` est respectée au déploiement. Plus tard, des labels changent et la règle n'est plus tenue. Que font les pods déjà en place ?"
+    choix:
+      - "Ils sont expulsés et replacés"
+      - "Ils restent où ils sont : la règle n'est appliquée qu'au placement"
+      - "Ils passent en `Pending`"
+    bonne: 1
+    explication: "Le nom dit tout : requise au scheduling, ignorée pendant l'exécution. La contrainte n'est pas réévaluée une fois le pod placé."
+  - q: "Tu veux 12 réplicas de l'API répartis à peu près également entre 3 zones, sans exiger une zone par pod. Quel mécanisme ?"
+    choix:
+      - "Une `podAntiAffinity` `required` par zone"
+      - "Un `nodeSelector` sur la zone"
+      - "Des `topologySpreadConstraints` avec un `maxSkew`"
+    bonne: 2
+    explication: "L'anti-affinité « un par domaine » ne tient pas avec 12 pods sur 3 zones. La répartition avec un écart maximal toléré, c'est le topology spread."
+---
+
+Le scheduler **filtre** les nœuds possibles, puis **note** ceux qui restent. Une partie de tes leviers agit côté pod : il dit où il veut aller, ou près de qui. Tu les croiseras dans tous les charts, surtout pour les GPU et la haute disponibilité.
+
+## nodeSelector, le plus simple
+
+Le pod ne va que sur les nœuds portant ces labels. Rien d'autre.
+
+```yaml
+nodeSelector:
+  nvidia.com/gpu.present: "true"
+```
+
+## Les affinités, plus expressives
+
+Chaque règle est `required` (contrainte dure : sinon `Pending`) ou `preferred` (souhait pondéré, le scheduler fait au mieux).
+
+- **nodeAffinity** : comme `nodeSelector`, avec des opérateurs (`In`, `NotIn`, `Exists`, `Gt`…).
+- **podAffinity** : « place-moi près des pods qui ont tel label ». Par exemple le cache près de l'API.
+- **podAntiAffinity** : « ne me place **pas** avec les pods qui ont tel label ». C'est ce qui met 3 réplicas d'une base sur 3 nœuds différents, indispensable pour la haute disponibilité.
+
+```yaml
+affinity:
+  podAntiAffinity:
+    requiredDuringSchedulingIgnoredDuringExecution:
+      - labelSelector:
+          matchLabels: { app: db }
+        topologyKey: kubernetes.io/hostname   # « un par nœud »
+```
+
+Le nom à rallonge dit exactement ce qu'il fait : contrainte appliquée **au placement**, pas réévaluée ensuite. `topologyKey` fixe le domaine : `kubernetes.io/hostname` pour « un par nœud », `topology.kubernetes.io/zone` pour « un par zone ».
+
+## Le piège classique chez un client
+
+```mermaid
+flowchart TD
+  %% scene: Trois réplicas, un par nœud :: Le chart demande une anti-affinité `required` sur `kubernetes.io/hostname`. :: R
+  %% scene: Deux se placent :: `db-0` et `db-1` trouvent chacun un nœud libre de tout pod `app: db`. :: R>OK, OK
+  %% scene: Le troisième n'a nulle part où aller :: Aucun nœud ne respecte la règle : `Pending` pour toujours, `didn't match pod anti-affinity rules`. :: !R>P, !P
+  %% scene: Passer en preferred :: Le troisième démarre à côté d'un autre : moins de résilience, mais la plateforme tourne. Ou ajouter un nœud. :: P>F, F
+  R["<b>3 réplicas db</b><br/>anti-affinité required"] --> OK["<b>Nœuds 1 et 2</b><br/>db-0, db-1"]
+  R --> P["<b>db-2 Pending</b><br/>aucun nœud sans db"]
+  P -->|"preferred"| F["<b>db-2 placé</b><br/>à côté d'un autre"]
+```
+
+Le message `FailedScheduling` le dit en toutes lettres, mais il faut aller le lire dans `describe`.
+
+## Topology spread : répartir
+
+Pour beaucoup de réplicas, l'anti-affinité « un par domaine » ne tient pas. Les `topologySpreadConstraints` répartissent uniformément sur un domaine (zones, nœuds) avec un **écart maximal toléré**, `maxSkew`. Avec `whenUnsatisfiable: DoNotSchedule`, un pod qui creuserait l'écart reste `Pending`.
+
+<Retenir>
+`nodeSelector` et `nodeAffinity` visent des nœuds, `podAffinity` et `podAntiAffinity` des voisins, le topology spread une répartition. `required` sans solution, c'est `Pending` pour toujours.
+</Retenir>

@@ -1,0 +1,65 @@
+---
+titre: "Récap : la vie d'un pod, du chart au SIGTERM"
+etape: 3
+ordre: 80
+type: recap
+objectif: "Revoir toute l'étape sur un seul schéma : choix du workload, placement, démarrage, probes, ressources et arrêt."
+---
+
+Toute l'étape suit un seul fil : **la vie d'un pod**. Le workload décide comment il est recréé, le scheduler où il atterrit, le kubelet comment il démarre, vit et meurt. Chaque statut bizarre de `kubectl get pods` correspond à une case de ce schéma. Lance le pas à pas avec ▶, ou avance à ton rythme avec ›.
+
+```mermaid
+flowchart TD
+  %% scene: Le bon workload :: Le chart rend des workloads : Deployment pour l'API, StatefulSet pour la base, DaemonSet pour les agents, Job pour la migration. Le contrôleur crée les pods. :: CH, CH>W, W
+  %% scene: Le placement :: Le scheduler filtre selon les requests, les selectors, les affinités et les taints, puis note les nœuds restants. :: W>S, S, S>K, K
+  %% scene: Aucun nœud ne convient :: `Pending`, et un `FailedScheduling` qui dit lequel coince : `Insufficient cpu`, `untolerated taint` ou `anti-affinity`. :: !S>P, !P
+  %% scene: Les init containers :: Un par un, chacun doit sortir en 0. `Init:1/2` sans erreur : long, pas cassé. Lis `kubectl logs <pod> -c <init>`. :: K>I, I
+  %% scene: Le démarrage :: Les principaux démarrent ensemble. Tant que la startup probe n'a pas réussi, liveness et readiness attendent. :: I>M, M
+  %% scene: Prêt à servir :: La readiness réussit : le pod entre dans les endpoints du Service et reçoit du trafic. :: M>R, R, R>SVC, SVC
+  %% scene: Readiness en échec :: Le pod sort des endpoints, `READY 0/1`, aucun redémarrage. Il revient quand il répond. :: !R, !R>SVC
+  %% scene: Liveness ou mémoire :: Liveness en échec ou limit mémoire dépassée (`OOMKilled`) : le conteneur redémarre, de plus en plus tard. `CrashLoopBackOff`. :: M>L, L, !L>RS, !RS
+  %% scene: Le nœud manque de mémoire :: Le kubelet expulse par ordre de QoS, BestEffort d'abord. Le pod `Evicted` est recréé ailleurs par son contrôleur. :: !K>EV, !EV, EV>W
+  %% scene: Une mise à jour de cluster :: `kubectl drain` vide un nœud, pod par pod, si le PDB le permet. Un PDB trop strict bloque tout. :: DR, DR>T
+  %% scene: L'arrêt propre :: Retrait des endpoints, `preStop`, `SIGTERM`, puis `SIGKILL` après le délai de grâce. :: T, T>SVC, SVC
+  %% scene: Et la boucle repart :: Le contrôleur recrée le pod ailleurs ; en rolling update, `maxSurge` et `maxUnavailable` gardent la capacité. :: T>NW, NW
+  CH["<b>Chart parapluie rendu</b><br/>manifestes de la plateforme"] --> W["<b>Workload</b><br/>Deployment, StatefulSet, Job…"]
+  W -->|"crée les pods"| S["<b>Scheduler</b><br/>requests, affinités, taints"]
+  S -->|"aucun nœud"| P["<b>Pending</b><br/>FailedScheduling"]
+  S -->|"nodeName"| K["<b>kubelet du nœud</b><br/>monte les volumes"]
+  K --> I["<b>Init containers</b><br/>un par un, Init:0/2"]
+  K -->|"pression mémoire"| EV["<b>Evicted</b><br/>ordre de QoS"]
+  I -->|"tous sortis en 0"| M["<b>Conteneurs principaux</b><br/>startupProbe d'abord"]
+  M --> L["<b>livenessProbe, limits</b><br/>es-tu bloqué ?"]
+  M --> R["<b>readinessProbe</b><br/>peux-tu servir ?"]
+  L -->|"échec, OOMKilled"| RS["<b>Redémarrage</b><br/>BackOff, CrashLoopBackOff"]
+  R -->|"succès"| SVC["<b>Endpoints du Service</b><br/>le trafic arrive"]
+  EV -.->|"recréé ailleurs"| W
+  SVC ---|"retiré d'abord"| T["<b>Arrêt</b><br/>preStop, SIGTERM, SIGKILL"]
+  T ---|"provoqué par"| DR["<b>kubectl drain</b><br/>sous contrôle du PDB"]
+  T -->|"le contrôleur recrée"| NW["<b>Nouveau pod</b><br/>maxSurge, maxUnavailable"]
+```
+
+## Ce que tu sais faire maintenant
+
+- **Choisir le workload** en une question : interchangeable, identité et disque, un par nœud, ou tâche qui se termine. [Leçon 1](/l/03-workloads/01-choisir-workload/)
+- **Lire un pod en Init** et savoir ce qui se passe à son arrêt. [Leçon 2](/l/03-workloads/02-demarrage-arret/)
+- **Régler les trois probes**, sans jamais brancher la liveness sur une dépendance. [Leçon 3](/l/03-workloads/03-trois-probes/)
+- **Dimensionner** requests et limits, et reconnaître `Insufficient cpu`, `OOMKilled` et `Evicted`. [Leçon 4](/l/03-workloads/04-requests-limits-qos/)
+- **Lire un placement** : selector, affinités, anti-affinité, topology spread. [Leçon 5](/l/03-workloads/05-placement-affinites/)
+- **Réserver des nœuds GPU** et dire d'où vient un `FailedScheduling`. [Leçon 6](/l/03-workloads/06-taints-priorite/)
+- **Traverser les changements** : rolling update, PDB, autoscalers. [Leçon 7](/l/03-workloads/07-rolling-pdb-autoscaling/)
+
+## Où tu en es dans la partie A
+
+```mermaid
+flowchart TD
+  E0["<b>✓ Étapes 0 à 2</b><br/>conteneurs, boucles, propriétaires"] --> E3["<b>✓ Étape 3, workloads</b><br/>la vie d'un pod"]
+  E3 --> E4["<b>Étape 4, réseau</b><br/>CNI, Services, DNS, Ingress"]
+  E4 --> E5["<b>Étapes 5 et 6</b><br/>stockage, config et accès"]
+```
+
+Tu sais maintenant pourquoi un pod est là, ou pourquoi il n'y est pas. L'étape 4 suit le trafic : comment la readiness et les endpoints que tu viens de voir deviennent une adresse joignable, du Service jusqu'à l'Ingress.
+
+<Retenir>
+Le workload fixe comment un pod est recréé, le scheduler où il va, les probes s'il reçoit du trafic ou redémarre. Requests pour placer, limits pour plafonner. Un PDB protège des gestes volontaires, à condition de laisser passer au moins un pod.
+</Retenir>

@@ -1,0 +1,85 @@
+---
+titre: "Un pod ne démarre pas d'un coup, ni ne s'arrête d'un coup"
+etape: 3
+ordre: 2
+objectif: "Dérouler la séquence de démarrage et d'arrêt d'un pod, et lire un pod bloqué en Init."
+commandes:
+  - c: "kubectl logs <pod> -c <init>"
+    d: "les logs d'un init container précis, le réflexe devant Init:0/2"
+  - c: "kubectl describe pod <pod>"
+    d: "l'état de chaque init container et les Events du pod"
+  - c: "kubectl get pod <pod> -o yaml | yq '.spec.initContainers[].name'"
+    d: "lister les init containers d'un pod, dans leur ordre"
+quiz:
+  - q: "Après un `helm upgrade`, le pod de l'API affiche `Init:1/2` depuis quatre minutes. Les Events ne montrent aucune erreur. Que fais-tu d'abord ?"
+    choix:
+      - "Tu supprimes le pod pour relancer le démarrage"
+      - "Tu lis les logs du second init container, qui tourne encore"
+      - "Tu augmentes la mémoire du conteneur principal"
+    bonne: 1
+    explication: "Le premier init est passé, le second tourne : souvent une migration ou une attente de base. Long n'est pas cassé. `kubectl logs <pod> -c <init>` dit ce qu'il fait. Supprimer le pod relancerait tout depuis le début."
+  - q: "Un pod a deux init containers. Le premier sort avec le code 1. Que se passe-t-il ?"
+    choix:
+      - "Le second init container démarre quand même"
+      - "Les conteneurs principaux démarrent sans lui"
+      - "Il est relancé, et rien d'autre ne démarre tant qu'il n'a pas réussi"
+    bonne: 2
+    explication: "Les init containers passent un par un et doivent sortir en 0. Tant que l'un échoue, il est relancé, le pod affiche `Init:Error` ou `Init:CrashLoopBackOff`, et les principaux attendent."
+  - q: "À chaque rolling update, quelques requêtes tombent en 502. L'image lance l'app via `sh -c`, et chaque arrêt de pod prend 30 secondes. Cause probable ?"
+    choix:
+      - "Le processus ne reçoit pas le SIGTERM : il est tué au SIGKILL, requêtes en cours coupées"
+      - "La readiness probe est trop rapide"
+      - "Le Service ne connaît pas les nouveaux pods"
+    bonne: 0
+    explication: "`sh -c` en PID 1 ne transmet pas les signaux. L'app ignore le SIGTERM, Kubernetes attend `terminationGracePeriodSeconds` (30 s) puis tue net. Un `preStop` avec un court `sleep` évite aussi les 502 dues au retrait des endpoints pas encore propagé."
+---
+
+Un pod qui met cinq minutes à démarrer n'est pas forcément cassé. Pour le savoir, il faut connaître la séquence complète, et où tu peux te brancher à chaque étape.
+
+```mermaid
+flowchart TD
+  %% scene: Placé :: Le scheduler a choisi un nœud, le kubelet monte les volumes. :: SC
+  %% scene: Les init containers :: Un par un, dans l'ordre, chacun doit sortir en 0. Le pod affiche `Init:0/2`, puis `Init:1/2`. :: SC>I, I
+  %% scene: Un init échoue :: Il est relancé. Les principaux ne démarrent pas : `Init:Error`, puis `Init:CrashLoopBackOff`. :: !I
+  %% scene: Les principaux démarrent :: Ensemble, une fois tous les init passés. Les probes prennent le relais (leçon suivante). :: I>M, M
+  %% scene: Suppression demandée :: Le pod est d'abord retiré des endpoints du Service, puis le hook `preStop` s'exécute. :: M>E, E, E>PS, PS
+  %% scene: SIGTERM, puis SIGKILL :: Le PID 1 reçoit SIGTERM. S'il n'est pas sorti après `terminationGracePeriodSeconds` (30 s), il est tué. :: PS>T, T, !T>K, !K
+  SC["<b>Scheduled</b><br/>volumes montés"] --> I["<b>Init containers</b><br/>un par un, doivent réussir"]
+  I --> M["<b>Conteneurs principaux</b><br/>démarrent ensemble"]
+  M -->|"suppression"| E["<b>Retiré des endpoints</b><br/>plus de trafic"]
+  E --> PS["<b>preStop hook</b><br/>par exemple sleep 5"]
+  PS --> T["<b>SIGTERM au PID 1</b><br/>arrêt propre attendu"]
+  T -->|"après 30 s par défaut"| K["<b>SIGKILL</b><br/>tué net"]
+```
+
+## Les init containers
+
+Ils tournent **avant** les conteneurs principaux, **un par un**, et doivent **réussir** (code de sortie 0). Si l'un échoue, il est relancé ; les principaux ne démarrent jamais tant que tous ne sont pas passés.
+
+Usages typiques : attendre qu'une base réponde, exécuter une migration, télécharger un modèle, générer une config.
+
+```yaml
+initContainers:
+  - name: wait-db
+    image: busybox:1.36
+    command: ['sh', '-c', 'until nc -z db 5432; do echo waiting; sleep 2; done']
+```
+
+Dans une plateforme LLM, c'est **la cause n° 1 de « ça met des minutes à démarrer »**. Une migration de cinq minutes bloque toute l'application, et c'est normal. Distingue *long* de *cassé* : `Init:1/2` sans erreur dans les Events, c'est long ; `Init:CrashLoopBackOff`, c'est cassé. Dans les deux cas, le réflexe est `kubectl logs <pod> -c <nom-de-l-init>`.
+
+## Les sidecars
+
+Un sidecar est un conteneur auxiliaire qui vit à côté du principal : proxy, collecteur de logs, agent. Depuis Kubernetes 1.29, la façon propre est un **init container avec `restartPolicy: Always`** : il démarre avant les principaux, reste actif, et s'arrête après eux.
+
+Avant, c'était un second conteneur dans `containers`, sans ordre garanti. Symptôme typique : un Job qui ne se termine jamais, parce que son sidecar tourne encore.
+
+## L'arrêt propre
+
+À la suppression, le pod sort d'abord du Service, puis reçoit `SIGTERM`. Deux conséquences :
+
+- Une application qui ignore `SIGTERM`, ou dont le PID 1 est un `sh -c` qui ne transmet pas les signaux (étape 0), met 30 s à s'arrêter à chaque déploiement et coupe des requêtes en cours.
+- Un hook `preStop` (`sleep 5`) laisse au retrait des endpoints le temps de se propager avant l'arrêt du processus. Ça évite des 502 pendant les rolling updates.
+
+<Retenir>
+Init containers un par un, puis principaux ensemble. À l'arrêt : retrait du Service, `preStop`, `SIGTERM`, et `SIGKILL` après le délai de grâce. Un pod en `Init` sans erreur est long, pas cassé : lis les logs de l'init.
+</Retenir>
