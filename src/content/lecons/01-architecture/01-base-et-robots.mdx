@@ -47,6 +47,11 @@ Ce mécanisme s'appelle la **réconciliation**.
 
 ```mermaid
 flowchart TD
+  %% scene: Observer :: Le contrôleur lit l'état réel du cluster via l'API. :: O
+  %% scene: Comparer :: Il compare ce qu'il voit à l'état désiré stocké dans etcd. :: O>D, D
+  %% scene: Un écart : agir :: Il manque un pod ? Il en crée un. Un pod en trop ? Il en supprime un. :: D>X, X, !D
+  %% scene: Puis recommencer :: Une fois l'écart réduit, il revient observer. La boucle ne s'arrête jamais. :: X>O, O
+  %% scene: Pas d'écart : attendre :: Rien à faire, il attend le prochain changement, puis observe à nouveau. :: D>W, W>O, W
   O["Observer l'état réel"] --> D{{"<b>Écart avec</b><br/>l'état désiré ?"}}
   D -->|"oui"| X["Agir pour le réduire"]
   D -->|"non"| W["Attendre"]

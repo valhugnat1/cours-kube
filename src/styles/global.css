@@ -93,6 +93,42 @@ th { font-weight: 650; }
 pre:has(> code.language-mermaid) { color: transparent; min-height: 9rem; background: transparent !important; border: 1px dashed var(--trait); }
 pre.schema-erreur { color: var(--encre); }
 
+/* Schémas animés pas à pas (src/scripts/scenes.ts) */
+.scenes { margin: 1.25rem 0; }
+.schema.anime { margin-bottom: 0.5rem; }
+.schema.anime g.node, .schema.anime g.cluster, .schema.anime path.flowchart-link, .schema.anime g.edgeLabel { transition: opacity 350ms ease; }
+.schema.anime .scene-en-cours g.node:not(.actif),
+.schema.anime .scene-en-cours path.flowchart-link:not(.actif),
+.schema.anime .scene-en-cours g.edgeLabel:not(.actif) { opacity: 0.16; }
+.schema.anime .scene-en-cours g.cluster:not(.actif) { opacity: 0.6; }
+.schema.anime g.node.actif :is(rect, polygon, circle, path, ellipse),
+.schema.anime g.cluster.actif rect { stroke: var(--pin) !important; stroke-width: 2.5px !important; fill: var(--pin-clair) !important; }
+.schema.anime g.node.alerte :is(rect, polygon, circle, path, ellipse) { stroke: var(--ambre) !important; fill: var(--ambre-clair) !important; }
+.schema.anime path.flowchart-link.actif { stroke: var(--pin) !important; stroke-width: 2.5px !important; }
+.schema.anime path.flowchart-link.alerte { stroke: var(--ambre) !important; }
+.schema.anime .jeton { fill: var(--pin); stroke: var(--papier); stroke-width: 1.5px; }
+.schema.anime .jeton.alerte { fill: var(--ambre); }
+
+.scene-barre {
+  position: sticky; bottom: 0; z-index: 4;
+  background: var(--surface); border: 1.5px solid var(--pin); border-radius: 14px;
+  padding: 0.6rem 0.75rem 0.5rem; box-shadow: 0 -6px 18px -10px rgb(0 0 0 / 0.35);
+}
+.scene-texte { margin: 0 0 0.4rem; font-size: 0.95rem; line-height: 1.45; min-height: 4.3em; }
+.scene-num { display: inline-block; font-size: 0.78rem; font-weight: 650; color: var(--pin); background: var(--pin-clair); border-radius: 999px; padding: 0 0.55em; margin-right: 0.2em; }
+.scene-commandes { display: flex; align-items: center; gap: 0.4rem; }
+.scene-commandes > button {
+  flex: none; width: 2.6rem; height: 2.4rem; border-radius: var(--rayon); font: inherit; font-size: 1.15rem; line-height: 1;
+  background: transparent; color: var(--pin); border: 1.5px solid var(--pin); cursor: pointer;
+}
+.scene-commandes > .scene-lecture { background: var(--pin); color: var(--papier); }
+.scene-commandes > button:disabled { opacity: 0.35; cursor: default; }
+.scene-points { flex: 1; display: flex; justify-content: center; flex-wrap: wrap; gap: 0.2rem 0.22rem; list-style: none; padding: 0; margin: 0; }
+.scene-points li { margin: 0; display: flex; }
+.scene-points button { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 2px solid var(--pin); background: transparent; cursor: pointer; }
+.scene-points button.vu { background: var(--pin); }
+.scene-points button[aria-current='true'] { box-shadow: 0 0 0 3px var(--pin-clair); }
+
 @media (prefers-reduced-motion: no-preference) {
   .rail-station.vient-detre-lu { animation: pulse 900ms ease-out 1; }
   @keyframes pulse { 0% { transform: scale(1.6); } 100% { transform: scale(1); } }

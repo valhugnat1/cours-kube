@@ -9,7 +9,8 @@ const lecons = defineCollection({
     titre: z.string().min(3).max(80),
     etape: z.number().int().min(0).max(24),
     ordre: z.number().int().min(1),
-    type: z.enum(['lecon', 'lab']).default('lecon'),
+    // recap : la page de fin d'étape, un grand schéma animé (ordre 80, avant le lab).
+    type: z.enum(['lecon', 'lab', 'recap']).default('lecon'),
     duree: z.number().int().min(2).max(15).default(5),
     // Une phrase : ce que tu sais faire/expliquer après la leçon.
     objectif: z.string().min(10).max(160),

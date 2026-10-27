@@ -70,6 +70,10 @@ Le `blockOwnerDeletion` vu dans les `ownerReferences` sert au mode `foreground` 
 
 ```mermaid
 flowchart TD
+  %% scene: Suppression en orphan :: Le Deployment disparaît sans emporter ses enfants. :: !D
+  %% scene: Le lien est coupé :: Le ReplicaSet reste, sans propriétaire. Plus de mise à jour, plus de rollback. :: !D>RS, RS
+  %% scene: Les pods vivent encore :: Ils restent sous leur ReplicaSet. :: RS>P, P
+  %% scene: helm uninstall ne les voit plus :: Ils ne font plus partie de la release : ils survivent à la désinstallation. :: !H>RS, H, RS
   D["<b>Deployment web</b><br/>supprimé en mode orphan"] -.->|"lien coupé"| RS["<b>ReplicaSet web-7d9f</b><br/>toujours là, sans parent"]
   RS --> P["<b>Pods</b><br/>toujours là"]
   H["<b>helm uninstall</b><br/>ne les connaît plus"] -.-> RS

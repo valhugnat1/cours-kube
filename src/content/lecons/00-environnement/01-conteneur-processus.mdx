@@ -64,6 +64,10 @@ Le processus lancé par l'`ENTRYPOINT` de l'image est le PID 1 du conteneur. C'e
 
 ```mermaid
 flowchart TD
+  %% scene: Kubernetes supprime le pod :: Le pod doit s'arrêter : une mise à jour, un scale, un nœud vidé. :: A
+  %% scene: SIGTERM au PID 1 :: Le signal va au processus lancé par l'`ENTRYPOINT`. Un shell sans `exec` en PID 1 ne le relaie pas. :: A>B, B
+  %% scene: Arrêt propre :: L'application finit ses requêtes en cours et s'arrête d'elle-même. :: B>C, C>D, C, D
+  %% scene: Arrêt brutal :: Rien au bout du délai de grâce (30 s par défaut) : `SIGKILL`. Les requêtes en cours sont perdues. :: !C>E, !E, C
   A["Suppression du pod"] --> B["SIGTERM envoyé au PID 1"]
   B --> C{"L'app s'arrête<br/>proprement ?"}
   C -- oui --> D["Fin propre"]

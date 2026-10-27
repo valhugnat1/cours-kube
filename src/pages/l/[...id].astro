@@ -6,7 +6,7 @@ import Quiz from '../../components/Quiz.astro';
 import Retenir from '../../components/Retenir.astro';
 import Piege from '../../components/Piege.astro';
 import { render } from 'astro:content';
-import { toutesLesLecons, urlLecon, questionsDe, type Lecon } from '../../data/lecons';
+import { toutesLesLecons, urlLecon, questionsDe, estDuParcours, type Lecon } from '../../data/lecons';
 import { etapeParNumero } from '../../data/etapes';
 
 export async function getStaticPaths() {
@@ -24,9 +24,11 @@ const stations = memeEtape.map((l) => ({ id: l.id, titre: l.data.titre, url: url
 const rang = memeEtape.filter((l) => l.data.type === 'lecon').findIndex((l) => l.id === lecon.id) + 1;
 const nbLecons = memeEtape.filter((l) => l.data.type === 'lecon').length;
 
-// Suivante dans le parcours : on enchaîne les leçons ; un lab ne bloque jamais le parcours.
+// Suivante dans le parcours : leçons puis récap d'étape ; un lab ne bloque jamais le parcours.
 const idx = lecons.findIndex((l) => l.id === lecon.id);
-const suivante = lecons.slice(idx + 1).find((l) => l.data.type === 'lecon');
+const suivante = lecons.slice(idx + 1).find(estDuParcours);
+const libelleSuivante = suivante?.data.type === 'recap' ? 'Pour finir l\u2019étape' : 'Leçon suivante';
+const derniereSansRecap = d.type === 'lecon' && rang === nbLecons && suivante?.data.type !== 'recap';
 const finDePartie = !suivante || etapeParNumero(suivante.data.etape).partie !== etape.partie;
 const lab = memeEtape.find((l) => l.data.type === 'lab');
 ---
@@ -37,7 +39,9 @@ const lab = memeEtape.find((l) => l.data.type === 'lab');
   <h1>{d.titre}</h1>
   {d.type === 'lab'
     ? <p class="bandeau-lab">Lab optionnel, à faire sur PC avec ton cluster kind. Compte environ {d.duree * 4} min.</p>
-    : <p class="discret">Leçon {rang} sur {nbLecons}, {d.duree} min. {d.objectif}</p>}
+    : d.type === 'recap'
+      ? <p class="discret">Récap de l’étape {d.etape}, {d.duree} min. {d.objectif}</p>
+      : <p class="discret">Leçon {rang} sur {nbLecons}, {d.duree} min. {d.objectif}</p>}
 
   <article class="contenu">
     <Content components={{ Retenir, Piege }} />
@@ -59,8 +63,8 @@ const lab = memeEtape.find((l) => l.data.type === 'lab');
 
   <button type="button" class="bouton secondaire marquer" data-lecon={lecon.id} data-par-quiz={d.quiz.length > 0 ? '1' : ''}
     hidden={d.quiz.length > 0}
-    data-non={d.type === 'lab' ? 'Marquer comme fait' : 'Marquer comme lue'}
-    data-oui={d.type === 'lab' ? 'Fait ✓ · annuler' : 'Lue ✓ · remettre en non lue'}>{d.type === 'lab' ? 'Marquer comme fait' : 'Marquer comme lue'}</button>
+    data-non={{ lab: 'Marquer comme fait', recap: 'Marquer comme vu', lecon: 'Marquer comme lue' }[d.type]}
+    data-oui={{ lab: 'Fait ✓ · annuler', recap: 'Vu ✓ · annuler', lecon: 'Lue ✓ · remettre en non lue' }[d.type]}>{{ lab: 'Marquer comme fait', recap: 'Marquer comme vu', lecon: 'Marquer comme lue' }[d.type]}</button>
 
   <nav class="suite" aria-label="Suite du parcours">
     {finDePartie && (
@@ -68,10 +72,10 @@ const lab = memeEtape.find((l) => l.data.type === 'lab');
     )}
     {suivante && (
       <a class:list={['bouton', { secondaire: finDePartie }]} href={urlLecon(suivante)}>
-        Leçon suivante : {suivante.data.titre}
+        {libelleSuivante} : {suivante.data.titre}
       </a>
     )}
-    {lab && d.type === 'lecon' && rang === nbLecons && (
+    {lab && (d.type === 'recap' || derniereSansRecap) && (
       <a class="lien-lab" href={urlLecon(lab)}>Sur PC : {lab.data.titre}</a>
     )}
   </nav>

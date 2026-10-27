@@ -1,0 +1,66 @@
+---
+titre: "Récap : le cluster en mouvement"
+etape: 1
+ordre: 80
+type: recap
+objectif: "Revoir toute l'étape sur un seul schéma animé : qui fait quoi entre un kubectl apply et un pod qui répond."
+---
+
+À la leçon 4, le trajet d'un `kubectl apply` était dessiné comme une chaîne. La réalité est plus simple et plus surprenante : **aucun composant ne parle à un autre, tous parlent à l'API server**. Chacun observe un type d'objet, réagit, et écrit son résultat dans l'API. Suis le déploiement de `web` (2 réplicas) pas à pas.
+
+```mermaid
+flowchart TD
+  %% scene: Tu décris un état :: `kubectl apply` envoie le manifeste à l'API server, la seule porte d'entrée. Avant : le bon contexte, puis `kubectl diff`. :: K, K>A, A
+  %% scene: L'API server enregistre :: Il valide le manifeste, vérifie tes droits, puis écrit le Deployment dans etcd. Lui seul parle à etcd. :: A, A>E, E
+  %% scene: Le Deployment controller réagit :: Il observe les Deployments, voit le nouveau, et crée un ReplicaSet. Il ne l'envoie à personne : il l'écrit dans l'API. :: A>DC, DC>A, DC, A
+  %% scene: Le ReplicaSet controller réagit :: Il voit un ReplicaSet qui veut 2 pods et en compte 0. Il crée deux objets Pod, encore sans nœud. :: A>RC, RC>A, RC, A
+  %% scene: Le scheduler place :: Il voit des pods sans `nodeName`, choisit un nœud selon les ressources et les contraintes, et écrit son choix. :: A>SC, SC>A, SC, A
+  %% scene: Le kubelet exécute :: Le kubelet du nœud voit un pod qui lui est assigné. Il demande au runtime de tirer l'image et de lancer les conteneurs. :: A>KL, KL>RT, RT>P, KL, RT, P
+  %% scene: Le statut remonte :: Le kubelet écrit le `status` du pod : Running, Ready. `spec` dit ce que tu veux, `status` ce qui est. :: KL>A, A>E, KL, A, E
+  %% scene: La boucle répare :: Un pod meurt. Le ReplicaSet controller compte 1 au lieu de 2 et en recrée un. Tu as décrit un résultat, pas donné un ordre. :: !P, A>RC, RC>A, RC
+  %% scene: Le Service suit les labels :: Le client appelle `http://web`. Le Service envoie vers les pods `Ready` qui portent `app=web`, quelle que soit leur IP. :: CL>SV, SV>P, CL, SV, P
+  %% scene: Une mise à jour progressive :: Tu changes l'image. Le Deployment controller crée un nouveau ReplicaSet, le monte pod par pod, et garde l'ancien à 0 pour le rollback. :: K>A, A>DC, DC>A, DC, RC
+  %% scene: Diagnostiquer un pod :: Trouve l'étape où la chaîne s'arrête. Pas de nœud : le scheduler. `ErrImagePull` : kubelet et runtime. `CrashLoopBackOff` : l'application. :: !SC, !RT, !P
+  K["<b>kubectl apply</b><br/>contexte vérifié, diff d'abord"] --> A["<b>API server</b><br/>valide, autorise, enregistre"]
+  subgraph CP["Control plane"]
+    A <--> E[("<b>etcd</b><br/>spec et status")]
+    A <--> DC["<b>Deployment controller</b><br/>crée les ReplicaSets"]
+    A <--> RC["<b>ReplicaSet controller</b><br/>maintient N pods"]
+    A <--> SC["<b>Scheduler</b><br/>écrit nodeName"]
+    DC ~~~ RC ~~~ SC
+  end
+  subgraph NO["Un nœud"]
+    KL["<b>kubelet</b><br/>exécute, remonte le statut"] --> RT["<b>runtime</b><br/>containerd ou CRI-O"]
+    RT --> P["<b>Pods web</b><br/>app=web, 2 réplicas"]
+  end
+  A <--> KL
+  SC ~~~ KL
+  CL["<b>Un client</b><br/>http://web"] --> SV["<b>Service web</b><br/>selector app=web"]
+  SV --> P
+```
+
+## Ce que tu sais faire maintenant
+
+- **Expliquer le modèle** : une base de données (etcd), une porte (l'API server), et des robots qui réconcilient. [Leçon 1](/l/01-architecture/01-base-et-robots/)
+- **Situer chaque composant**, côté control plane et côté nœud. [Leçons 2](/l/01-architecture/02-control-plane/) et [3](/l/01-architecture/03-noeuds/)
+- **Suivre un apply de bout en bout**, et s'en servir pour trouver où un pod bloque. [Leçon 4](/l/01-architecture/04-trajet-apply/)
+- **Lire un objet** : `metadata`, `spec`, `status`. [Leçon 5](/l/01-architecture/05-anatomie-objet/)
+- **Emboîter Deployment, ReplicaSet et Pod**, et faire un rollback. [Leçon 6](/l/01-architecture/06-pod-replicaset-deployment/)
+- **Relier les objets par les labels** : Service, selector, annotations. [Leçon 7](/l/01-architecture/07-service-labels/)
+- **Ranger et configurer** : namespaces, ConfigMaps, Secrets. [Leçon 8](/l/01-architecture/08-namespace-configmap-secret/)
+- **Utiliser kubectl** pour lire, puis pour modifier sans casser, et lire un statut de pod. [Leçons 9](/l/01-architecture/09-kubectl-lire/), [10](/l/01-architecture/10-kubectl-ecrire/) et [11](/l/01-architecture/11-statuts-pod/)
+
+## Où tu en es dans la partie A
+
+```mermaid
+flowchart TD
+  E0["<b>✓ Étape 0, environnement</b><br/>conteneur = processus isolé"] --> E1["<b>✓ Étape 1, architecture</b><br/>état désiré, boucles"]
+  E1 --> E2["<b>Étape 2, contrôleurs</b><br/>qui possède quoi"]
+  E2 --> E3["<b>Étapes 3 à 6</b><br/>workloads, réseau, stockage, accès"]
+```
+
+Tu sais maintenant que des boucles réparent sans cesse le cluster. L'étape 2 répond à la question qui suit : quand une boucle annule ton geste, **qui est-elle, et où agir pour qu'elle te suive ?**
+
+<Retenir>
+Tout passe par l'API server, et tout est écrit dans etcd. Chaque contrôleur observe, compare à l'état désiré, et corrige, sans fin. Pour diagnostiquer, suis le trajet et trouve l'étape où il s'arrête.
+</Retenir>

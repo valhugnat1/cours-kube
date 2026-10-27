@@ -58,6 +58,9 @@ flowchart TD
 
 ```mermaid
 flowchart TD
+  %% scene: La rustine :: `kubectl scale` corrige maintenant, sur le cluster. :: I
+  %% scene: Le déploiement suivant :: Le prochain `helm upgrade` réapplique la valeur du chart, et ta correction disparaît. :: I>H, H>X, !X
+  %% scene: La vraie correction :: Modifiée dans les values versionnées, la valeur tient à chaque déploiement. :: V>H2, H2>OK, V, OK
   I["<b>kubectl scale --replicas=3</b><br/>correction ponctuelle"] --> H["Prochain helm upgrade"]
   H --> X["<b>Retour à la valeur du chart :</b><br/>la correction disparaît"]
   V["<b>values.yaml versionné</b><br/>correction durable"] --> H2["Prochain helm upgrade"]

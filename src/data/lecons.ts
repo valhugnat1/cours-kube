@@ -13,6 +13,9 @@ export const urlLecon = (l: Lecon) => `/l/${l.id}/`;
 /** Parcours mobile = leçons uniquement ; les labs sont à part, optionnels. */
 export const estLecon = (l: Lecon) => l.data.type === 'lecon';
 
+/** Ce qu'on enchaîne sur téléphone : les leçons et le récap de fin d'étape, pas les labs. */
+export const estDuParcours = (l: Lecon) => l.data.type !== 'lab';
+
 export async function parcours() {
   const lecons = await toutesLesLecons();
   return parties.map((p) => ({

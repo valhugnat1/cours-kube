@@ -1,17 +1,19 @@
 ---
 import Base from '../layouts/Base.astro';
 import Rail from '../components/Rail.astro';
-import { parcours, toutesLesLecons, urlLecon } from '../data/lecons';
+import { parcours, toutesLesLecons, urlLecon, estDuParcours } from '../data/lecons';
 
 const parties = await parcours();
+// Ordre du parcours (leçons et récaps) pour la carte « Reprendre » ; le compteur ne compte que les leçons.
 const ordre = (await toutesLesLecons())
-  .filter((l) => l.data.type === 'lecon')
-  .map((l) => ({ id: l.id, titre: l.data.titre, url: urlLecon(l), etape: l.data.etape }));
+  .filter(estDuParcours)
+  .map((l) => ({ id: l.id, titre: l.data.titre, url: urlLecon(l), etape: l.data.etape, recap: l.data.type === 'recap' }));
 const premiere = ordre[0];
+const nbLecons = ordre.filter((l) => !l.recap).length;
 ---
 <Base titre="Parcours">
   <section class="reprendre" data-ordre={JSON.stringify(ordre)}>
-    <p class="avancement"><span data-nb-lues>0</span> leçons lues sur {ordre.length} disponibles</p>
+    <p class="avancement"><span data-nb-lues>0</span> leçons lues sur {nbLecons} disponibles</p>
     <div class="jauge" aria-hidden="true"><span data-jauge></span></div>
     {premiere ? (
       <a class="carte-reprendre" href={premiere.url} data-reprendre>
@@ -73,13 +75,14 @@ const premiere = ordre[0];
 <script>
   import { lire, aRevoir, estLue } from '../scripts/progression';
   const racine = document.querySelector<HTMLElement>('[data-ordre]')!;
-  const ordre: { id: string; titre: string; url: string; etape: number }[] = JSON.parse(racine.dataset.ordre!);
+  const ordre: { id: string; titre: string; url: string; etape: number; recap: boolean }[] = JSON.parse(racine.dataset.ordre!);
+  const lecons = ordre.filter((l) => !l.recap);
 
   const maj = () => {
     const e = lire();
-    const lues = ordre.filter((l) => estLue(e, l.id)).length;
+    const lues = lecons.filter((l) => estLue(e, l.id)).length;
     document.querySelector('[data-nb-lues]')!.textContent = String(lues);
-    (document.querySelector('[data-jauge]') as HTMLElement).style.width = `${ordre.length ? (100 * lues) / ordre.length : 0}%`;
+    (document.querySelector('[data-jauge]') as HTMLElement).style.width = `${lecons.length ? (100 * lues) / lecons.length : 0}%`;
 
     const suivante = ordre.find((l) => !estLue(e, l.id));
     const carte = document.querySelector<HTMLAnchorElement>('[data-reprendre]');
@@ -88,7 +91,7 @@ const premiere = ordre[0];
         carte.href = suivante.url;
         carte.querySelector('[data-reprendre-libelle]')!.textContent = lues ? 'Reprendre' : 'Commencer';
         carte.querySelector('[data-reprendre-titre]')!.textContent = suivante.titre;
-        carte.querySelector('[data-reprendre-etape]')!.textContent = `Étape ${suivante.etape}`;
+        carte.querySelector('[data-reprendre-etape]')!.textContent = `Étape ${suivante.etape}${suivante.recap ? ', récap' : ''}`;
       } else if (ordre.length) {
         carte.querySelector('[data-reprendre-libelle]')!.textContent = 'Tout est lu';
         carte.querySelector('[data-reprendre-titre]')!.textContent = 'Fais un contrôle de partie ou vide ta pile « À revoir ».';

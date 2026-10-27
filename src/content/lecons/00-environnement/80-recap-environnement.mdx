@@ -1,0 +1,61 @@
+---
+titre: "Récap : de ton terminal au processus qui répond"
+etape: 0
+ordre: 80
+type: recap
+objectif: "Revoir toute l'étape sur un seul schéma animé : l'outil, le YAML, l'image, le processus isolé, et le trafic qui l'atteint."
+---
+
+L'étape 0 a posé des briques qui semblaient séparées : les outils, le YAML, les images, le noyau, le réseau. Mises bout à bout, elles racontent le chemin d'une application, **de ta commande jusqu'au processus qui répond**. Kubernetes viendra s'insérer au milieu à l'étape 1.
+
+```mermaid
+flowchart TD
+  %% scene: Le bon outil :: Le shell lance le premier `kubectl` trouvé dans le `PATH`. `type -a` avant tout `export`, et un kubectl à une mineure près du cluster. :: T
+  %% scene: Marche ici, pas là ? :: Avant d'accuser l'outil : dossier courant, variables d'environnement (`env | sort`), `$HOME` inscriptible, version installée. :: !T
+  %% scene: Le manifeste YAML :: Tu décris l'application en YAML : des espaces, jamais de tabulations, et des guillemets dans le doute, toujours dans un ConfigMap. :: T>Y, Y
+  %% scene: Tag ou digest :: Le manifeste nomme une image. Un tag est une étiquette mobile, un digest l'empreinte immuable du contenu : chez un client, on raisonne en digests. :: Y>TG, TG
+  %% scene: Une pile de couches :: L'image est une pile de couches en lecture seule, mises en cache : ce qui change rarement en bas, le code en haut. :: TG>I, I
+  %% scene: Le nœud tire l'image :: Le runtime télécharge les couches qui lui manquent et ajoute une couche en écriture, jetée à l'arrêt du conteneur. :: I>K, K
+  %% scene: Un conteneur n'est qu'un processus :: Le noyau l'isole avec des namespaces (ce qu'il voit) et le limite avec des cgroups (ce qu'il consomme). L'ENTRYPOINT devient son PID 1. :: K>P, K, P
+  %% scene: OOMKilled :: Au-delà de sa limite CPU, le processus rame. Au-delà de sa limite mémoire, le noyau le tue : c'est tout ce que veut dire `OOMKilled`. :: !K>OOM, !OOM, K
+  %% scene: L'arrêt propre :: À la suppression du pod, le PID 1 reçoit `SIGTERM`. S'il ne s'arrête pas, `SIGKILL` après 30 s : les requêtes en cours sont perdues. :: P>SIG, SIG, P
+  %% scene: Le trafic entrant :: La requête arrive en HTTPS à la gateway, qui termine le TLS ; derrière, HTTP en clair jusqu'au pod. :: NAV>GW, GW>P, NAV, GW
+  %% scene: Écouter sur 0.0.0.0 :: Une app qui écoute sur `127.0.0.1` refuse tout ce qui vient d'ailleurs. Et un diagnostic part toujours d'un code HTTP. :: GW>P, !P
+  subgraph PO["Ton poste"]
+    T["<b>Tu tapes kubectl</b><br/>le PATH choisit le binaire"] --> Y["<b>Manifeste YAML</b><br/>espaces, guillemets"]
+  end
+  subgraph RE["Registre d'images"]
+    TG["<b>Tag ou digest</b><br/>étiquette ou empreinte"] --> I["<b>Image</b><br/>couches en lecture seule"]
+  end
+  Y -->|"nomme l'image"| TG
+  K["<b>Noyau Linux du nœud</b><br/>namespaces : ce qu'il voit<br/>cgroups : ce qu'il consomme"] -->|"isole et limite"| P["<b>Processus de l'app</b><br/>PID 1, écoute sur 0.0.0.0"]
+  K -.->|"mémoire dépassée"| OOM["<b>OOMKilled</b><br/>tué par le noyau"]
+  P -.->|"suppression du pod"| SIG["<b>SIGTERM</b><br/>puis SIGKILL après 30 s"]
+  I -->|"tirée par le runtime"| K
+  P ---|"HTTP clair"| GW["<b>Gateway d'entrée</b><br/>termine le TLS"]
+  GW ---|"HTTPS"| NAV["<b>Navigateur</b><br/>la requête remonte"]
+```
+
+## Ce que tu sais faire maintenant
+
+- **Expliquer un conteneur** : un processus, des namespaces, des cgroups, et ce que veut dire `OOMKilled`. [Leçon 1](/l/00-environnement/01-conteneur-processus/)
+- **Lire un nom d'image** : couches, tag ou digest, `command` et `args`. [Leçon 2](/l/00-environnement/02-images-couches/)
+- **Poser les bons réflexes réseau** : `0.0.0.0`, DNS, terminaison TLS, code HTTP. [Leçon 3](/l/00-environnement/03-reseau-minimum/)
+- **Écrire du YAML** qui ne te piège pas. [Leçon 4](/l/00-environnement/04-yaml-pieges/)
+- **Savoir quel outil s'exécute**, et lequel de tes clusters tu vises. [Leçon 5](/l/00-environnement/05-outillage-path/)
+- **Diagnostiquer un outil qui marche ici mais pas ailleurs.** [Leçon 6](/l/00-environnement/06-pieges-terrain/)
+
+## Où tu en es dans la partie A
+
+```mermaid
+flowchart TD
+  E0["<b>✓ Étape 0, environnement</b><br/>conteneur = processus isolé"] --> E1["<b>Étape 1, architecture</b><br/>état désiré, boucles"]
+  E1 --> E2["<b>Étape 2, contrôleurs</b><br/>qui possède quoi"]
+  E2 --> E3["<b>Étapes 3 à 6</b><br/>workloads, réseau, stockage, accès"]
+```
+
+Dans ce schéma, il manque encore le chef d'orchestre : qui décide sur quel nœud lancer l'image, et qui la relance quand le processus meurt. C'est l'objet de l'étape 1.
+
+<Retenir>
+Un conteneur est un processus isolé et limité par le noyau, lancé depuis une image en couches que l'on désigne idéalement par son digest. Il doit écouter sur `0.0.0.0` et s'arrêter proprement sur `SIGTERM`. Et avant d'accuser un outil, vérifie lequel s'exécute, et depuis où.
+</Retenir>
