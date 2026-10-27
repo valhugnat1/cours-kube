@@ -1,4 +1,8 @@
 // Rend les blocs ```mermaid des leçons en schémas, aux couleurs du site (clair/sombre).
+// Un bloc qui contient des lignes « %% scene: » devient un schéma animé pas à pas (scenes.ts).
+
+import { animer } from './scenes';
+import { RE_SCENE } from './scenes-syntaxe.js';
 
 export async function rendreSchemas() {
   const blocs = Array.from(document.querySelectorAll<HTMLElement>('code.language-mermaid'))
@@ -15,7 +19,7 @@ export async function rendreSchemas() {
     startOnLoad: false,
     theme: 'base',
     fontFamily: "'Literata Variable', Georgia, serif",
-    flowchart: { htmlLabels: true, curve: 'basis', padding: 10, nodeSpacing: 28, rankSpacing: 36 },
+    flowchart: { htmlLabels: true, curve: 'basis', padding: 10, nodeSpacing: 28, rankSpacing: 36, subGraphTitleMargin: { top: 4, bottom: 10 } },
     sequence: { mirrorActors: false },
     themeVariables: {
       darkMode: sombre,
@@ -50,6 +54,7 @@ export async function rendreSchemas() {
       const { svg } = await mermaid.render(`schema-${i}`, source);
       div.innerHTML = svg;
       pre.replaceWith(div);
+      if (source.split('\n').some((l) => RE_SCENE.test(l))) animer(div, source);
     } catch (e) {
       console.error('Schéma invalide', e);
       pre.classList.add('schema-erreur');

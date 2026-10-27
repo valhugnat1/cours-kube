@@ -38,6 +38,12 @@ C'est **le** schéma à avoir en tête. Tu appliques un Deployment qui demande d
 
 ```mermaid
 flowchart TD
+  %% scene: Tu appliques :: `kubectl apply` envoie le Deployment à l'API server, qui le valide, vérifie tes droits et l'écrit dans etcd. :: K>A, K, A
+  %% scene: Un ReplicaSet apparaît :: Le Deployment controller voit le nouveau Deployment et crée un ReplicaSet à 2 réplicas. :: A>D, D
+  %% scene: Deux pods sans nœud :: Le ReplicaSet controller compte 0 pod pour 2 voulus et crée deux objets Pod. Personne ne les exécute encore. :: D>R, R
+  %% scene: Le placement :: Le scheduler choisit un nœud pour chaque pod. Bloqué ici : `FailedScheduling` dans les Events. :: R>S, S
+  %% scene: L'exécution :: Le kubelet du nœud fait tirer l'image et lancer les conteneurs. Bloqué ici : `ErrImagePull`. :: S>L, L
+  %% scene: Le statut :: Le kubelet remonte Running, Ready. Un conteneur qui meurt en boucle : `CrashLoopBackOff`, c'est l'application. :: L>ST, ST
   K["kubectl apply"] --> A["<b>API server</b><br/>valide, autorise, écrit dans etcd"]
   A --> D["<b>Deployment controller</b><br/>crée un ReplicaSet"]
   D --> R["<b>ReplicaSet controller</b><br/>crée 2 Pods sans nœud"]

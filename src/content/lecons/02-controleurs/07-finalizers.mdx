@@ -51,6 +51,11 @@ Le contrôleur concerné est censé faire son ménage, puis retirer son finalize
 
 ```mermaid
 flowchart TD
+  %% scene: Suppression demandée :: `kubectl delete` est accepté. :: D
+  %% scene: Terminating :: L'API server pose un `deletionTimestamp`, mais l'objet reste. :: D>T, T
+  %% scene: Des verrous ? :: Tant que `metadata.finalizers` n'est pas vide, rien n'est supprimé. :: T>F, F
+  %% scene: Le ménage :: Le contrôleur nettoie le disque, le LB ou le DNS, puis retire son verrou. S'il a disparu, la boucle s'arrête ici. :: F>C, C>F, C
+  %% scene: Supprimé :: Plus aucun finalizer : l'objet disparaît. :: F>G, G
   D["<b>kubectl delete</b>"] --> T["<b>Terminating</b><br/>deletionTimestamp posé"]
   T --> F{{"<b>Reste-t-il des finalizers ?</b>"}}
   F -->|"oui"| C["<b>Le contrôleur fait le ménage</b><br/>disque, LB, DNS, puis retire son verrou"]

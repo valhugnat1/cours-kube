@@ -60,6 +60,9 @@ Pour une application sans état, c'est l'objet de référence. Quand tu changes 
 
 ```mermaid
 flowchart TD
+  %% scene: Avant la mise à jour :: L'ancien ReplicaSet porte les 2 pods. Tu changes l'image du Deployment. :: A
+  %% scene: Un nouveau pod d'abord :: Le Deployment crée un nouveau ReplicaSet. Un ancien pod ne part que quand un nouveau est Ready. :: A>B, B
+  %% scene: Bascule terminée :: Le nouveau ReplicaSet porte les 2 pods. L'ancien reste à 0, prêt pour un `rollout undo`. :: B>C, C
   A["Ancien RS : 2 pods"] --> B["<b>Nouveau RS : 1 pod Ready</b><br/>Ancien RS : 1 pod"]
   B --> C["<b>Nouveau RS : 2 pods</b><br/>Ancien RS : 0, conservé"]
 ```

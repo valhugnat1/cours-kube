@@ -62,6 +62,11 @@ Le propriétaire a souvent lui-même un propriétaire. La chaîne complète sort
 
 ```mermaid
 flowchart TD
+  %% scene: Le pod :: Ses `ownerReferences` pointent vers un ReplicaSet, avec `controller: true`. :: P, P>RS, RS
+  %% scene: Le ReplicaSet :: Lui-même appartient au Deployment. :: RS>D, D
+  %% scene: Le sommet côté cluster :: Le Deployment n'a pas d'`ownerReferences`. La suite se lit dans ses labels : Helm ou ArgoCD. :: D>H, H
+  %% scene: Le fichier versionné :: Les values dans git : c'est ici que se fait la correction durable. :: H>G, G
+  %% scene: La personne :: Au bout, quelqu'un décide. Tu t'arrêtes au premier fichier ou à la première personne. :: G>U, U, G
   P["<b>Pod</b><br/>web-7d9f8b6c4-x2k9p"] -->|"controller"| RS["<b>ReplicaSet</b><br/>web-7d9f8b6c4"]
   RS -->|"controller"| D["<b>Deployment</b><br/>web, ownerReferences vide"]
   D -->|"labels, annotations"| H["<b>Helm ou ArgoCD</b><br/>hors des ownerReferences"]

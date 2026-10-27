@@ -62,6 +62,10 @@ Le cas `--replicas=0` dépend du contexte. Ne généralise pas.
 
 ```mermaid
 flowchart TD
+  %% scene: Scale à 0 :: Tu passes le Deployment à 0. :: Z
+  %% scene: L'HPA en pause :: Seul, il ne remonte pas : `ScalingActive=False`, raison `ScalingDisabled`. :: Z>P, P
+  %% scene: Quelqu'un remet 2 :: Un `helm upgrade`, ArgoCD ou KEDA réécrit une valeur non nulle. :: P>U, U
+  %% scene: L'HPA reprend la main :: Il impose au moins `minReplicas` : ton 0 a disparu. :: U>W, !W
   Z["<b>scale --replicas=0</b>"] --> P["<b>HPA en pause</b><br/>ScalingActive=False<br/>raison ScalingDisabled"]
   P --> U["<b>Un autre acteur remet 2</b><br/>helm upgrade, ArgoCD, KEDA"]
   U --> W["<b>HPA réveillé</b><br/>impose au moins minReplicas"]

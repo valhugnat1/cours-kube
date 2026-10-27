@@ -1,14 +1,14 @@
 ---
 // Le rail : une ligne, une station par leçon. Les stations lues se remplissent (côté client).
-interface Station { id: string; titre: string; url: string; type: 'lecon' | 'lab' }
+interface Station { id: string; titre: string; url: string; type: 'lecon' | 'lab' | 'recap' }
 interface Props { stations: Station[]; courante?: string; compact?: boolean }
 const { stations, courante, compact = false } = Astro.props;
 ---
 {compact ? (
   <ol class="rail-h" aria-label="Leçons de l'étape">
-    {stations.filter((s) => s.type === 'lecon').map((s) => (
+    {stations.filter((s) => s.type !== 'lab').map((s) => (
       <li>
-        <a href={s.url} class:list={['rail-station', { courante: s.id === courante }]} data-lecon={s.id} title={s.titre}>
+        <a href={s.url} class:list={['rail-station', { courante: s.id === courante, recap: s.type === 'recap' }]} data-lecon={s.id} title={s.titre}>
           <span class="visuellement-cache">{s.titre}</span>
         </a>
       </li>
@@ -17,10 +17,11 @@ const { stations, courante, compact = false } = Astro.props;
 ) : (
   <ol class="rail-v">
     {stations.map((s) => (
-      <li class:list={[{ lab: s.type === 'lab' }]}>
-        <span class="rail-station" data-lecon={s.id} aria-hidden="true"></span>
+      <li class:list={[{ lab: s.type === 'lab', recap: s.type === 'recap' }]}>
+        <span class:list={['rail-station', { recap: s.type === 'recap' }]} data-lecon={s.id} aria-hidden="true"></span>
         <a href={s.url}>{s.titre}</a>
         {s.type === 'lab' && <span class="etiquette">sur PC</span>}
+        {s.type === 'recap' && <span class="etiquette">schéma animé</span>}
       </li>
     ))}
   </ol>
@@ -29,6 +30,8 @@ const { stations, courante, compact = false } = Astro.props;
   .visuellement-cache { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .rail-station { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--pin); background: var(--papier); flex: none; }
   :global(.rail-station.lue) { background: var(--pin); }
+  /* Le récap de fin d'étape : une station carrée, comme un terminus. */
+  .rail-station.recap { border-radius: 3px; }
 
   .rail-h { list-style: none; padding: 0; margin: 0.25rem 0 0.75rem; display: flex; align-items: center; }
   .rail-h li { display: flex; align-items: center; margin: 0; }
@@ -42,6 +45,7 @@ const { stations, courante, compact = false } = Astro.props;
   .rail-v a { color: var(--encre); text-decoration: none; }
   .rail-v li.lab .rail-station { border-style: dashed; border-color: var(--encre-douce); }
   .rail-v li.lab a { color: var(--encre-douce); }
+  .rail-v li.recap a { font-weight: 650; }
   .etiquette { font-size: 0.75rem; color: var(--encre-douce); border: 1px solid var(--trait); border-radius: 999px; padding: 0 0.5em; white-space: nowrap; }
 </style>
 <script>

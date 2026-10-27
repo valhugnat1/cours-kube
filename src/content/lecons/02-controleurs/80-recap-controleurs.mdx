@@ -1,0 +1,60 @@
+---
+titre: "Récap : qui possède quoi, et où agir"
+etape: 2
+ordre: 80
+type: recap
+objectif: "Revoir toute l'étape sur un seul schéma : la chaîne de propriété, ce qui annule tes gestes, et où corriger pour de bon."
+---
+
+Toute l'étape tient dans une seule question : **qui écrit l'état désiré de cet objet ?** Le schéma ci-dessous rassemble la chaîne de propriété d'une API déployée par un chart, et tout ce qui peut annuler ton geste. Lance le pas à pas avec ▶, ou avance à ton rythme avec ›.
+
+```mermaid
+flowchart TD
+  %% scene: La chaîne de propriété :: Chaque objet créé par un contrôleur pointe vers son propriétaire (`ownerReferences`). Remonte jusqu'au premier fichier versionné ou à une personne. :: P>RS, RS>D, D>G, G>H, P, RS, D, G, H
+  %% scene: Tu supprimes un pod :: Le ReplicaSet voit qu'il en manque un et le recrée aussitôt. Acceptable pour un pod précis, puisque tu sais qui le recrée. :: !P, RS>P, RS
+  %% scene: Tu scales le ReplicaSet :: `kubectl scale rs` est annulé en moins d'une seconde : le Deployment possède le nombre de réplicas de son ReplicaSet. :: !RS, D>RS, D
+  %% scene: Tu édites le Deployment :: Sur un objet Helm, `kubectl edit` tient jusqu'au prochain `helm upgrade`. Avec ArgoCD en self-heal, quelques secondes. :: K, !K>D, !D, G>D, G
+  %% scene: L'HPA possède un champ :: Sous un HPA, `spec.replicas` ne t'appartient plus : il le réécrit selon la charge, entre `minReplicas` et `maxReplicas`. :: HPA, HPA>D, D, !K
+  %% scene: Couper un composant à 0 :: À 0, l'HPA se met en pause. Un `helm upgrade` qui remet 2 réplicas le réveille, et ton 0 disparaît. Coupe plutôt avec `enabled: false`. :: !D, G>D, HPA>D, HPA, G
+  %% scene: La correction durable :: Le changement va dans les values versionnées, relu puis mergé. Il survit à tous les déploiements. :: H, H>G, G, G>D, D
+  %% scene: Supprimer en cascade :: Supprime le parent : par défaut, le ReplicaSet puis les pods suivent. Avec `--cascade=orphan`, ils restent, sans propriétaire. :: !D, !D>RS, !RS, !RS>P, !P
+  %% scene: Le finalizer bloque :: `kubectl delete` passe l'objet en `Terminating`. Il reste là tant que `metadata.finalizers` n'est pas vide. :: !F
+  %% scene: Le contrôleur fait le ménage :: Il nettoie ce qui vit hors du cluster, puis retire son verrou. Si ce contrôleur a disparu, rien ne bouge. :: F>C, C>EXT, F, C, EXT
+  %% scene: Forcer, en dernier recours :: Retirer le finalizer à la main débloque l'objet, mais saute le ménage : disque, load balancer ou DNS restent, facturés. :: !F, !EXT
+  %% scene: Ponctuel, durable, et l'écrire :: Un geste manuel se trace (annotation, message) et s'accompagne d'une PR. Dans ton compte rendu, le vérifié d'un côté, le supposé de l'autre. :: K, K>D, H, H>G, G
+  H["<b>Un humain</b><br/>décide, relit, merge"] -->|"PR"| G["<b>values.yaml dans git</b><br/>état désiré durable"]
+  G -->|"helm upgrade, sync ArgoCD"| D["<b>Deployment api</b><br/>ownerReferences vide"]
+  K["<b>Toi, kubectl</b><br/>edit, scale : ponctuel"] -.->|"écrasé ensuite"| D
+  D <-->|"spec.replicas"| HPA["<b>HPA</b><br/>possède ce champ"]
+  D -->|"controller: true"| RS["<b>ReplicaSet api-7d9f</b><br/>compte ses pods par label"]
+  RS -->|"controller: true"| P["<b>Pods api</b><br/>recréés s'ils disparaissent"]
+  P ~~~ F["<b>Objet en Terminating</b><br/>metadata.finalizers non vide"]
+  F -->|"attend"| C["<b>Son contrôleur</b><br/>fait le ménage, retire le verrou"]
+  C -->|"nettoie"| EXT[("<b>Hors du cluster</b><br/>disque, load balancer, DNS")]
+```
+
+## Ce que tu sais faire maintenant
+
+- **Reconnaître un objet qui revient** : il a un propriétaire, une boucle qui ne s'arrête pas. [Leçon 1](/l/02-controleurs/01-il-est-revenu/)
+- **Remonter la chaîne** avec `ownerReferences` et `controller: true`, jusqu'à un fichier ou une personne. [Leçon 2](/l/02-controleurs/02-ownerreferences/)
+- **Lire les labels** qui trahissent Helm, ArgoCD, Flux ou un opérateur, avant de toucher à quoi que ce soit. [Leçon 3](/l/02-controleurs/03-helm-argocd-operateurs/)
+- **Repérer un champ possédé**, comme `spec.replicas` sous un HPA. [Leçon 4](/l/02-controleurs/04-hpa-champ-possede/)
+- **Choisir le geste** : `rollout restart`, `delete pod` quand tu sais qui recrée, values pour le durable. [Leçon 5](/l/02-controleurs/05-bonne-action/)
+- **Supprimer sans surprise** : cascade, orphelins, namespace, et finalizers. [Leçons 6](/l/02-controleurs/06-cascade-orphelins/) et [7](/l/02-controleurs/07-finalizers/)
+- **Écrire juste** : ponctuel ou durable, vérifié ou supposé. [Leçon 8](/l/02-controleurs/08-ponctuel-durable/)
+
+## Où tu en es dans la partie A
+
+```mermaid
+flowchart TD
+  E0["<b>✓ Étape 0, environnement</b><br/>conteneur = processus isolé"] --> E1["<b>✓ Étape 1, architecture</b><br/>état désiré, boucles"]
+  E1 --> E2["<b>✓ Étape 2, contrôleurs</b><br/>qui possède quoi"]
+  E2 --> E3["<b>Étape 3, workloads avancés</b><br/>probes, ressources, scheduling"]
+  E3 --> E4["<b>Étapes 4 à 6</b><br/>réseau, stockage, config et accès"]
+```
+
+L'étape 1 t'a montré la boucle de réconciliation ; celle-ci t'a appris à ne plus te battre contre elle. La suite pose les objets qui font tourner une vraie plateforme : StatefulSet, Job, probes, et l'HPA que tu viens de croiser.
+
+<Retenir>
+Avant d'agir, demande qui écrit l'état désiré : `ownerReferences` dans le cluster, labels au-delà. Le geste manuel est ponctuel et se dit ; le durable va dans les fichiers versionnés. Supprimer, c'est supprimer le parent, et un finalizer ne se force qu'en connaissance de cause.
+</Retenir>

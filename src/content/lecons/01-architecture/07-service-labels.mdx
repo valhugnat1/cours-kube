@@ -44,6 +44,9 @@ Un Service donne une IP et un nom DNS **stables** à un groupe de pods. Il répa
 
 ```mermaid
 flowchart TD
+  %% scene: Un nom stable :: Le client appelle `http://web`. Il ne connaît aucune IP de pod. :: C, C>S, S
+  %% scene: Sélection par label :: Le Service envoie vers les pods `Ready` qui portent `app=web`, et répartit entre eux. :: S>P1, S>P2, P1, P2
+  %% scene: Pas le bon label :: Un pod `app=api` n'est pas sélectionné. Une faute de frappe dans le selector, et plus rien n'est ciblé. :: !P3, S
   C["<b>Un client dans le cluster</b><br/>appelle http://web"] --> S["<b>Service web</b><br/>selector app=web"]
   S --> P1["<b>Pod app=web</b><br/>Ready"]
   S --> P2["<b>Pod app=web</b><br/>Ready"]
