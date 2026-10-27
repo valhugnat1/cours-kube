@@ -1,0 +1,87 @@
+---
+titre: "Le nœud repousse : taints, tolerations, priorité"
+etape: 3
+ordre: 6
+objectif: "Réserver des nœuds GPU avec taint, toleration et selector, et dire si un FailedScheduling vient des ressources, d'une taint ou d'une affinité."
+commandes:
+  - c: "kubectl describe node <nœud> | grep Taints"
+    d: "les taints posées sur un nœud"
+  - c: "kubectl taint nodes <nœud> nvidia.com/gpu=present:NoSchedule"
+    d: "réserver un nœud aux pods qui tolèrent la taint"
+  - c: "kubectl taint nodes <nœud> nvidia.com/gpu-"
+    d: "retirer la taint (le tiret final)"
+  - c: "kubectl get priorityclass"
+    d: "les rangs de priorité définis sur le cluster"
+quiz:
+  - q: "Les nœuds GPU portent une taint `nvidia.com/gpu`. Tu ajoutes la toleration au serveur d'inférence, mais il atterrit sur un nœud CPU. Pourquoi ?"
+    choix:
+      - "La toleration est mal écrite, sinon il serait allé sur le GPU"
+      - "Une toleration autorise le nœud tainted sans y forcer le pod : il manque un nodeSelector ou une affinité"
+      - "Le scheduler place toujours sur le nœud le moins cher"
+    bonne: 1
+    explication: "La taint repousse ceux qui ne la tolèrent pas, la toleration lève l'interdiction. Pour forcer le GPU, il faut toleration + nodeSelector ou affinité : les charts GPU font toujours les deux."
+  - q: "Trois pods sont `Pending`. Les messages : (a) `Insufficient memory`, (b) `untolerated taint`, (c) `didn't match pod anti-affinity rules`. Lequel se règle en ajoutant de la capacité, sans toucher au manifeste ?"
+    choix:
+      - "(b), la taint"
+      - "(c), l'anti-affinité"
+      - "(a), les ressources"
+    bonne: 2
+    explication: "(a) manque de place : un nœud de plus ou des requests revues. (b) demande une toleration ou le retrait de la taint. (c) une règle impossible sur ce cluster : un nœud de plus peut suffire, mais le vrai réflexe est de relire la règle."
+  - q: "Un nœud tombe. Cinq minutes plus tard, ses pods sont recréés ailleurs. Quel mécanisme a déclenché leur expulsion ?"
+    choix:
+      - "Une taint automatique `unreachable` en `NoExecute`, tolérée 300 s par défaut"
+      - "Le PodDisruptionBudget du namespace"
+      - "La préemption par une PriorityClass système"
+    bonne: 0
+    explication: "Kubernetes pose `node.kubernetes.io/not-ready` ou `…/unreachable` sur le nœud. Les pods la tolèrent `tolerationSeconds` (300 s par défaut), puis `NoExecute` les expulse."
+---
+
+L'affinité, c'est le pod qui choisit. Ici c'est l'inverse : **le nœud repousse**. Un nœud *tainted* n'accepte que les pods qui *tolèrent* sa taint. Usage canonique : réserver les nœuds GPU, chers, aux workloads GPU.
+
+```mermaid
+flowchart TD
+  %% scene: Le nœud GPU repousse :: Une taint `nvidia.com/gpu` en `NoSchedule` : aucun nouveau pod sans toleration. :: G
+  %% scene: Sans toleration :: Le pod est refusé sur le nœud GPU. Le scheduler le place sur un nœud CPU, ou le laisse `Pending`. :: G>Q1, Q1, !Q1>X, !X
+  %% scene: Toleration seule :: L'interdiction est levée, mais rien n'attire le pod : il peut finir sur un nœud CPU. :: Q1>Q2, Q2, Q2>Y, Y
+  %% scene: Toleration et selector :: Le selector force le nœud GPU, la toleration l'autorise. Les charts GPU font toujours les deux. :: Q2>Z, Z
+  G["<b>Nœud GPU</b><br/>taint NoSchedule"] --> Q1{{"<b>Le pod tolère</b><br/><b>la taint ?</b>"}}
+  Q1 -->|"non"| X["<b>Refusé sur le GPU</b><br/>CPU, ou Pending"]
+  Q1 -->|"oui"| Q2{{"<b>A-t-il un nodeSelector</b><br/><b>ou une affinité GPU ?</b>"}}
+  Q2 -->|"non"| Y["<b>Autorisé, pas attiré</b><br/>peut finir sur un nœud CPU"]
+  Q2 -->|"oui"| Z["<b>Sur le nœud GPU</b><br/>toleration + selector"]
+```
+
+## Taint et toleration
+
+La taint se pose sur le nœud, la toleration dans le pod :
+
+```yaml
+tolerations:
+  - key: nvidia.com/gpu
+    operator: Exists
+    effect: NoSchedule
+```
+
+Trois effets : `NoSchedule` (pas de nouveau pod), `PreferNoSchedule` (éviter si possible), `NoExecute` (expulse aussi les pods déjà présents).
+
+Une **toleration ne force pas** le placement, elle l'autorise. Pour forcer, il faut toleration **et** `nodeSelector` ou affinité.
+
+Tu en croises sans les avoir posées : les nœuds du control plane sont tainted par défaut. Et Kubernetes pose des taints automatiques (`node.kubernetes.io/not-ready`, `…/unreachable`) qui expulsent les pods d'un nœud en panne après `tolerationSeconds`, 300 s par défaut.
+
+## Priorité et préemption
+
+Une `PriorityClass` donne un rang au pod. Quand le cluster est plein, un pod de haute priorité peut **expulser** des pods de priorité inférieure pour prendre leur place. Utile pour que la gateway et la base passent avant les workers. Les composants système utilisent `system-cluster-critical`.
+
+## Lire un FailedScheduling
+
+Les trois motifs de la partie, côte à côte :
+
+| Message | Cause | Réflexe |
+|---|---|---|
+| `Insufficient cpu` / `memory` | requests trop grosses pour les nœuds | revoir les requests, ou ajouter des nœuds |
+| `untolerated taint` | le nœud repousse le pod | toleration, ou retrait de la taint |
+| `didn't match pod anti-affinity rules` | règle impossible sur ce cluster | `preferred`, ou plus de nœuds |
+
+<Retenir>
+La taint repousse, la toleration autorise, le selector force : pour un nœud GPU, il faut les deux derniers. Un `FailedScheduling` dit toujours lequel des trois coince : ressources, taint ou affinité.
+</Retenir>

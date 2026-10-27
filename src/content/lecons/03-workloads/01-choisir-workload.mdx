@@ -1,0 +1,84 @@
+---
+titre: "Cinq workloads, cinq contrats différents"
+etape: 3
+ordre: 1
+objectif: "Choisir entre Deployment, StatefulSet, DaemonSet, Job et CronJob, et justifier ce choix en une phrase."
+commandes:
+  - c: "kubectl get deploy,sts,ds -A"
+    d: "voir les trois workloads qui tournent en continu, tous namespaces"
+  - c: "kubectl get jobs,cronjobs"
+    d: "les tâches qui se terminent, et leurs planifications"
+  - c: "kubectl get pods -l job-name=<job>"
+    d: "retrouver les pods d'un Job, même en échec, pour lire leurs logs"
+quiz:
+  - q: "Ton chart déploie PostgreSQL en 2 réplicas. Un collègue propose un Deployment « pour faire simple ». Pourquoi est-ce une erreur ?"
+    choix:
+      - "Un Deployment ne sait pas lancer plus d'un réplica d'une base"
+      - "Chaque réplica de la base a besoin d'une identité et d'un disque à lui, que seul le StatefulSet garantit"
+      - "Un Deployment redémarre les pods trop lentement pour une base"
+    bonne: 1
+    explication: "Un Deployment crée des pods interchangeables, aux noms aléatoires. Une base a besoin de noms stables (`db-0`, `db-1`) et d'un PVC qui suit chaque pod : c'est le contrat du StatefulSet."
+  - q: "Le pod `db-0` d'un StatefulSet est bloqué en suppression sur un nœud injoignable. Le StatefulSet ne recrée pas `db-0` ailleurs. Qu'en penses-tu ?"
+    choix:
+      - "C'est voulu : il attend que l'ancien `db-0` soit vraiment parti, pour ne jamais avoir deux `db-0`"
+      - "C'est un bug du StatefulSet controller, il faut le redémarrer"
+      - "Il manque un HPA pour recréer le pod plus vite"
+    bonne: 0
+    explication: "Deux instances avec la même identité et le même disque, c'est la corruption assurée. Le StatefulSet préfère attendre. Un Deployment, lui, aurait recréé un pod aussitôt."
+  - q: "On ajoute un nœud GPU au cluster. Le NVIDIA device plugin y apparaît tout seul, sans que personne touche à un `replicas`. Quel workload le porte ?"
+    choix:
+      - "Un Deployment avec un HPA"
+      - "Un StatefulSet"
+      - "Un DaemonSet"
+    bonne: 2
+    explication: "Un DaemonSet n'a pas de `replicas` : il pose un pod par nœud (ou par nœud sélectionné), et un nœud ajouté reçoit automatiquement le sien."
+  - q: "Un Job de migration a échoué `backoffLimit` fois. Où lis-tu la cause ?"
+    choix:
+      - "Nulle part : le Job a supprimé ses pods en échouant"
+      - "Dans les logs de ses pods, restés là avec le Job en `Failed`"
+      - "Dans les logs du Job controller, dans `kube-system`"
+    bonne: 1
+    explication: "Un Job en `Failed` garde ses pods justement pour ça. `kubectl logs` sur l'un d'eux donne l'erreur de la migration."
+---
+
+Ouvre le rendu d'un chart parapluie de plateforme LLM : des dizaines de Deployments, quelques StatefulSets, des DaemonSets, des Jobs. Chaque type est un **contrat** différent avec Kubernetes. Le bon choix se fait en une question : qu'est-ce que ce composant attend de ses pods ?
+
+```mermaid
+flowchart TD
+  Q{{"<b>La tâche se termine ?</b>"}} -->|"oui"| J["<b>Job, ou CronJob</b><br/><b>si planifié</b><br/>migration, sauvegarde"]
+  Q -->|"non, elle tourne"| N{{"<b>Un pod par nœud ?</b>"}}
+  N -->|"oui"| DS["<b>DaemonSet</b><br/>logs, métriques, GPU plugin"]
+  N -->|"non"| C{{"<b>Réplicas</b><br/><b>interchangeables ?</b>"}}
+  C -->|"oui"| D["<b>Deployment</b><br/>API, UI, gateway, workers"]
+  C -->|"non : identité, disque"| S["<b>StatefulSet</b><br/>PostgreSQL, Redis, Kafka"]
+```
+
+## Les trois qui tournent en continu
+
+- **Deployment** : application *sans état*, n'importe quel réplica traite n'importe quelle requête. Pods interchangeables aux noms aléatoires, rolling update, scale libre. C'est ton API, ton UI, ta gateway, tes workers de crawl, ton routeur de modèles.
+- **StatefulSet** : application *avec état*, chaque réplica a une identité et un disque à lui. Noms stables (`db-0`, `db-1`), un PVC par pod qui le suit, démarrage et arrêt ordonnés, un nom DNS par pod via un Service headless. C'est PostgreSQL, Redis, Kafka, ClickHouse, etcd, MinIO.
+- **DaemonSet** : *un pod par nœud*, ou par nœud sélectionné. Pas de `replicas` : le nombre suit les nœuds, et un nœud ajouté reçoit automatiquement son pod. C'est le collecteur de logs, l'agent de métriques, le CNI, le NVIDIA device plugin, le driver CSI.
+
+## Les deux qui se terminent
+
+- **Job** : une tâche qui *finit*. Relancée en cas d'échec jusqu'à `backoffLimit`, parallélisable, pod en `Completed` à la fin. Migrations de schéma, import initial, hooks Helm.
+- **CronJob** : un Job planifié, en syntaxe cron, avec une `concurrencyPolicy` et un historique des Jobs conservés.
+
+## Deux comportements qui surprennent
+
+```mermaid
+flowchart TD
+  %% scene: Un pod tombe :: Le nœud de `db-0` ne répond plus. Le pod reste en suppression. :: !P
+  %% scene: Le StatefulSet attend :: Il ne recrée pas `db-0` tant que l'ancien n'est pas vraiment parti. Jamais deux `db-0`, jamais deux pods sur le même disque. :: P>W, W
+  %% scene: Puis il recrée :: `db-0` revient, même nom, même PVC. C'est plus lent qu'un Deployment, et c'est voulu. :: W>N, N
+  P["<b>db-0 en suppression</b><br/>nœud injoignable"] --> W["<b>StatefulSet</b><br/>attend son départ réel"]
+  W --> N["<b>Nouveau db-0</b><br/>même nom, même PVC"]
+```
+
+Un StatefulSet **ne remplace pas** un pod tombé aussi vite qu'un Deployment. C'est sa raison d'être : protéger l'identité et le disque.
+
+Un Job qui a échoué `backoffLimit` fois reste en `Failed` **avec ses pods** : c'est là que tu lis ses logs. À l'inverse, supprimer le pod d'un Job `Completed` ne relance rien.
+
+<Retenir>
+Interchangeable : Deployment. Identité et disque : StatefulSet. Un par nœud : DaemonSet. Ça se termine : Job, ou CronJob si c'est planifié.
+</Retenir>

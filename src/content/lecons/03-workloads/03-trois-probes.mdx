@@ -1,0 +1,97 @@
+---
+titre: "Startup, liveness, readiness : trois questions"
+etape: 3
+ordre: 3
+objectif: "Dire ce que fait chaque probe en cas d'échec, et pourquoi une liveness ne teste jamais une dépendance."
+commandes:
+  - c: "kubectl get pods"
+    d: "READY 0/1 sans RESTARTS : readiness ; RESTARTS qui monte : crash ou liveness"
+  - c: "kubectl get endpoints <service>"
+    d: "les adresses vers lesquelles le Service route vraiment"
+  - c: "kubectl logs <pod> --previous"
+    d: "les logs du conteneur d'avant le dernier redémarrage"
+  - c: "kubectl describe pod <pod> | grep -A3 'Last State'"
+    d: "pourquoi le conteneur précédent s'est arrêté"
+quiz:
+  - q: "La base de la plateforme ralentit dix minutes. Pendant ce temps, tous les pods de l'API redémarrent en boucle. Qu'est-ce qui est mal configuré ?"
+    choix:
+      - "La readiness probe teste la base"
+      - "La liveness probe teste la base"
+      - "La startup probe est trop courte"
+    bonne: 1
+    explication: "Une liveness en échec redémarre le conteneur. Branchée sur une dépendance, elle transforme une base lente en redémarrage général. La readiness peut tester la base : en échec, elle retire juste le pod du Service."
+  - q: "Un pod affiche `READY 0/1`, `STATUS Running`, `RESTARTS 0`, et `kubectl get endpoints` ne montre aucune adresse. Quelle probe échoue ?"
+    choix:
+      - "La readiness : le pod est retiré du Service, sans redémarrage"
+      - "La liveness : le conteneur va être redémarré"
+      - "La startup : les autres probes sont coupées"
+    bonne: 0
+    explication: "Pas de redémarrage et pas d'endpoint, c'est la signature de la readiness. Une liveness en échec ferait monter RESTARTS."
+  - q: "Un serveur d'inférence charge un modèle de 40 Go. Il finit en `CrashLoopBackOff`, tué à chaque fois avant la fin du chargement. Que lui manque-t-il ?"
+    choix:
+      - "Une readiness probe plus fréquente"
+      - "Une limite mémoire plus basse"
+      - "Une startup probe généreuse, par exemple 60 × 10 s"
+    bonne: 2
+    explication: "Tant que la startup probe n'a pas réussi, liveness et readiness sont désactivées. Sans elle, la liveness tue le conteneur en plein chargement, et le cycle recommence."
+  - q: "Un pod en `CrashLoopBackOff` redémarre de moins en moins souvent. Pourquoi ?"
+    choix:
+      - "Le kubelet abandonne après cinq tentatives"
+      - "Le délai entre deux redémarrages double à chaque échec, jusqu'à 5 minutes"
+      - "Le scheduler le déplace sur un nœud moins chargé"
+    bonne: 1
+    explication: "C'est le « BackOff » : 10 s, 20 s, 40 s… plafonné à 5 min. Le compteur se remet à zéro après 10 minutes sans crash. Le kubelet n'abandonne jamais avec `restartPolicy: Always`."
+---
+
+C'est le point le plus mal compris de Kubernetes, et le plus important pour la stabilité d'une plateforme. Chaque probe pose **une question différente**, et son échec a une conséquence différente.
+
+```mermaid
+flowchart TD
+  %% scene: D'abord la startup :: Tant qu'elle n'a pas réussi, les deux autres sont désactivées. Elle laisse le temps de démarrer. :: SP
+  %% scene: Démarré :: La startup réussit une fois. La liveness et la readiness prennent le relais, en continu. :: SP>LP, SP>RP, LP, RP
+  %% scene: Readiness en échec :: Le pod sort des endpoints du Service, `READY 0/1`. Pas de redémarrage : il revient quand il répond. :: RP, !RP>OUT, !OUT
+  %% scene: Liveness en échec :: Le conteneur est redémarré. Si ça se répète, `CrashLoopBackOff`. :: LP, !LP>RS, !RS
+  SP["<b>startupProbe</b><br/>as-tu fini de démarrer ?"] -->|"succès"| LP["<b>livenessProbe</b><br/>es-tu bloqué ?"]
+  SP -->|"succès"| RP["<b>readinessProbe</b><br/>peux-tu servir ?"]
+  LP -->|"échec"| RS["<b>Redémarrage</b><br/>du conteneur"]
+  RP -->|"échec"| OUT["<b>Retiré du Service</b><br/>READY 0/1, pas redémarré"]
+```
+
+## Une question par probe
+
+| Probe | Question | Erreur classique |
+|---|---|---|
+| **startup** | « As-tu fini de démarrer ? » | L'oublier sur une app lente : la liveness la tue avant la fin, CrashLoopBackOff perpétuel |
+| **liveness** | « Es-tu bloqué ? » | La brancher sur la base : une base lente redémarre toute la plateforme en boucle |
+| **readiness** | « Peux-tu servir maintenant ? » | L'omettre : du trafic arrive sur un pod pas prêt, 502 et 503 pendant les déploiements |
+
+La startup ne redémarre qu'après `failureThreshold × periodSeconds` sans succès. La règle d'or : **liveness = mon processus est-il bloqué, jamais de dépendance externe. Readiness = suis-je capable de servir, dépendances comprises. Startup = laissez-moi le temps.**
+
+```yaml
+startupProbe:
+  httpGet: { path: /healthz, port: 8000 }
+  failureThreshold: 30
+  periodSeconds: 5
+livenessProbe:
+  httpGet: { path: /healthz, port: 8000 }
+  periodSeconds: 10
+readinessProbe:
+  httpGet: { path: /ready, port: 8000 }
+  periodSeconds: 5
+```
+
+Trois façons de tester : `httpGet` (code 2xx ou 3xx), `tcpSocket` (port ouvert), `exec` (commande qui sort en 0). Les réglages : `initialDelaySeconds`, `periodSeconds`, `timeoutSeconds`, `failureThreshold`, `successThreshold`.
+
+Cas LLM : un serveur d'inférence charge un modèle de plusieurs dizaines de Go. Sans startup probe généreuse (`failureThreshold: 60`, `periodSeconds: 10`, soit 10 minutes), il est tué avant d'avoir fini. Tu y reviendras à l'étape 15.
+
+## Ce que veut dire CrashLoopBackOff
+
+`restartPolicy` vaut `Always` par défaut (Deployments), `OnFailure` ou `Never` pour les Jobs. Après chaque crash, le délai avant le redémarrage suivant **double** : 10 s, 20 s, 40 s… jusqu'à 5 minutes. C'est le « BackOff » de `CrashLoopBackOff`. Le compteur se remet à zéro après 10 minutes sans crash.
+
+<Piege>
+`READY 0/1` avec `RESTARTS` à 0 n'est pas un crash : c'est la readiness. Ne cherche pas dans `--previous`, il n'y a pas de conteneur précédent. Regarde la probe et `kubectl get endpoints`.
+</Piege>
+
+<Retenir>
+Startup : laisse démarrer. Liveness : redémarre si bloqué, sans jamais tester une dépendance. Readiness : retire du Service si pas prêt, sans redémarrer.
+</Retenir>

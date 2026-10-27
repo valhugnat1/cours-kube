@@ -1,0 +1,198 @@
+---
+titre: "Lab : init, probes, OOM, Pending, StatefulSet et Job"
+etape: 3
+ordre: 90
+type: lab
+duree: 15
+objectif: "Provoquer et reconnaître chaque statut de l'étape sur ton cluster kind : Init, CrashLoopBackOff, readiness, OOMKilled, Pending."
+---
+
+Sur ton PC, cluster kind `lab` de l'étape 0, avec metrics-server installé au lab de l'étape 2. Garde un second terminal ouvert sur `kubectl get pods -w` pendant tout le lab.
+
+## 1. Prépare le terrain
+
+```bash
+kubectl config current-context    # doit être kind-lab
+kubectl create namespace lab3 && kubens lab3
+```
+
+## 2. Un init container qui attend
+
+Écris `app.yaml` : un Deployment `app`, 1 réplica, image `nginx:1.27`, un init container `wait-db`, des requests, une readiness et une liveness.
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: app }
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: app } }
+  template:
+    metadata: { labels: { app: app } }
+    spec:
+      initContainers:
+        - name: wait-db
+          image: busybox:1.36
+          command: ['sh', '-c', 'until nc -z db 5432; do echo waiting; sleep 2; done']
+      containers:
+        - name: app
+          image: nginx:1.27
+          resources:
+            requests: { cpu: 100m, memory: 64Mi }
+          readinessProbe:
+            httpGet: { path: /, port: 80 }
+          livenessProbe:
+            httpGet: { path: /, port: 80 }
+```
+
+```bash
+kubectl apply -f app.yaml
+kubectl expose deploy app --port=80         # le Service, utile à l'étape 5 du lab
+kubectl get pods -w                         # reste en Init:0/1
+kubectl logs deploy/app -c wait-db --tail=3
+kubectl describe pod -l app=app | tail -20
+```
+
+Lis les Events : rien d'anormal. Un init container qui attend n'est pas une erreur, c'est le cas « long, pas cassé ».
+
+## 3. Débloque-le
+
+Crée ce qu'il attend : un Deployment `db` avec l'image `postgres:16` et la variable `POSTGRES_PASSWORD=lab`, et un Service `db` sur le port 5432 qui le cible.
+
+```bash
+kubectl create deployment db --image=postgres:16
+kubectl set env deploy/db POSTGRES_PASSWORD=lab
+kubectl expose deploy db --port=5432
+```
+
+Le pod `app` passe `Init:0/1`, puis `PodInitializing`, puis `Running 1/1`.
+
+## 4. Un CrashLoopBackOff volontaire
+
+Dans `app.yaml`, ajoute au conteneur `app` : `command: ["sh", "-c", "sleep 5; exit 1"]`. Applique, puis :
+
+```bash
+kubectl get pods -w                         # Running, Error, CrashLoopBackOff, RESTARTS qui monte
+kubectl describe pod -l app=app | grep -A3 'Last State'
+kubectl logs -l app=app --previous
+```
+
+Note comment le délai entre deux redémarrages s'allonge (Events : `Back-off restarting failed container`).
+
+## 5. Readiness qui échoue, sans crash
+
+Retire la `command` pour revenir à nginx, et mets la readiness sur `path: /nexistepas`. Applique :
+
+```bash
+kubectl get pods                            # Running 0/1, RESTARTS = 0
+kubectl get endpoints app                   # aucune adresse : le Service ne route plus vers ce pod
+```
+
+Remets la readiness sur `/`, puis passe cette fois la **liveness** sur `/nexistepas`. Le conteneur redémarre en boucle. C'est la différence entre les deux probes, vécue. Remets la liveness sur `/`.
+
+## 6. OOMKilled
+
+Un Deployment `hog` dont le processus veut 200 Mo avec une limite à 100 Mi :
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: hog }
+spec:
+  selector: { matchLabels: { app: hog } }
+  template:
+    metadata: { labels: { app: hog } }
+    spec:
+      containers:
+        - name: hog
+          image: polinux/stress
+          command: ["stress", "--vm", "1", "--vm-bytes", "200M", "--vm-hang", "0"]
+          resources:
+            limits: { memory: 100Mi }
+```
+
+```bash
+kubectl apply -f hog.yaml
+kubectl get pods -w
+kubectl describe pod -l app=hog | grep -B2 -A2 OOMKilled
+kubectl delete deploy hog
+```
+
+## 7. Pending pour ressources
+
+```bash
+kubectl create deployment big --image=nginx:1.27
+kubectl set resources deploy/big --requests=cpu=64
+kubectl describe pod -l app=big | grep -A3 FailedScheduling    # Insufficient cpu
+kubectl delete deploy big
+```
+
+## 8. Pending pour taint
+
+Taint ton unique nœud, relance un pod, observe, tolère, observe, retire la taint :
+
+```bash
+kubectl taint nodes lab-control-plane team=gpu:NoSchedule
+kubectl rollout restart deploy/app && kubectl get pods -w       # le nouveau pod reste Pending
+kubectl describe pod -l app=app | grep -A2 FailedScheduling      # untolerated taint
+```
+
+Ajoute la toleration au Deployment `app` (`key: team`, `operator: Exists`, `effect: NoSchedule`), applique : il démarre. Puis retire la taint :
+
+```bash
+kubectl taint nodes lab-control-plane team-
+```
+
+## 9. Anti-affinité impossible
+
+Passe `app` à 2 réplicas avec une `podAntiAffinity` `required` sur `kubernetes.io/hostname` et `matchLabels: { app: app }`. Sur ton cluster à un nœud, le second pod reste `Pending` : lis le message dans `describe`. Passe la règle en `preferredDuringSchedulingIgnoredDuringExecution` (avec un `weight` et un `podAffinityTerm`) : il démarre.
+
+## 10. Rolling update contrôlé
+
+Retire l'anti-affinité, garde 2 réplicas, et ajoute sous `spec` :
+
+```yaml
+  strategy:
+    rollingUpdate: { maxSurge: 1, maxUnavailable: 0 }
+```
+
+Applique, puis change le tag nginx (par exemple `nginx:1.26`) et regarde `kubectl get pods -w` : à aucun moment il n'y a moins de 2 pods `Ready`.
+
+## 11. StatefulSet
+
+Remplace le Deployment `db` par un StatefulSet à 2 réplicas avec un `volumeClaimTemplates` de 1Gi nommé `data`, et un Service headless (`clusterIP: None`).
+
+```bash
+kubectl delete deploy db && kubectl delete svc db
+kubectl apply -f db-sts.yaml
+kubectl get pods,pvc -w                     # db-0 puis db-1, PVC data-db-0 et data-db-1
+kubectl delete pod db-0
+kubectl get pods,pvc                        # db-0 revient, même nom, même PVC
+```
+
+Observe le démarrage séquentiel : `db-1` attend que `db-0` soit prêt.
+
+## 12. Job
+
+Un Job `migrate` : `image: busybox:1.36`, `command: ["sh", "-c", "echo migrating; sleep 10; exit 0"]`, `backoffLimit: 2`.
+
+```bash
+kubectl apply -f migrate.yaml
+kubectl get jobs,pods -w                    # Completed
+```
+
+Change `exit 0` en `exit 1`, renomme le Job (`migrate-ko`) et réapplique. Compte les tentatives, puis lis l'état final et les logs d'un des pods restés là :
+
+```bash
+kubectl get pods -l job-name=migrate-ko
+kubectl describe job migrate-ko | tail -10
+kubectl logs -l job-name=migrate-ko --tail=5
+```
+
+## 13. Nettoie
+
+```bash
+kubectl delete namespace lab3
+```
+
+Les PVC du StatefulSet partent avec le namespace. Sur un cluster réel, vérifie que les PV associés sont bien libérés : c'est l'objet de l'étape 5.
