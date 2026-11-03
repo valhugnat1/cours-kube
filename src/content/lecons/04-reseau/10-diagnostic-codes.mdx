@@ -1,0 +1,85 @@
+---
+titre: "Service injoignable : l'ordre des vérifications et les codes"
+etape: 4
+ordre: 10
+objectif: "Dérouler le diagnostic d'un service injoignable dans l'ordre, et lire un 404, 502, 503 ou 504 renvoyé par un ingress controller."
+commandes:
+  - c: "kubectl get endpoints api"
+    d: "1. le Service a-t-il des cibles ?"
+  - c: "kubectl exec <pod> -- ss -ltnp"
+    d: "3. le conteneur écoute-t-il sur le targetPort, sur 0.0.0.0 ?"
+  - c: "kubectl run -it --rm t --image=nicolaka/netshoot -- curl -sv http://api.platform:8080/healthz"
+    d: "4. joignable depuis l'intérieur du cluster ?"
+  - c: "kubectl port-forward pod/<pod> 8000:8000"
+    d: "5. court-circuiter tout le réseau du cluster"
+  - c: "kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --tail=100"
+    d: "6. ce que le controller a renvoyé, et pourquoi"
+quiz:
+  - q: "L'ingress controller renvoie 503 sur `/api`. Le Service `api` existe. Où regardes-tu en premier ?"
+    choix:
+      - "Le timeout du controller"
+      - "Le `host` de l'Ingress"
+      - "Les endpoints du Service : readiness ou selector"
+    bonne: 2
+    explication: "503 : le controller n'a aucun endpoint vers qui envoyer. C'est donc la readiness ou le selector. Le timeout, c'est 504 ; le host mal écrit, 404."
+  - q: "Le controller renvoie 502. Les endpoints sont présents. Cause la plus probable ?"
+    choix:
+      - "Le pod n'écoute pas sur le targetPort, ou écoute sur 127.0.0.1"
+      - "Aucune règle ne correspond à l'hôte"
+      - "Les pods ne sont pas Ready"
+    bonne: 0
+    explication: "502 : un endpoint existe, mais la connexion a échoué. Vérifie avec `ss -ltnp` que le conteneur écoute sur le bon port et sur 0.0.0.0."
+  - q: "`curl` depuis un pod netshoot vers `api.platform:8080` répond 200. Le client voit toujours une erreur depuis son navigateur. Que conclus-tu ?"
+    choix:
+      - "Le Service ou le pod est cassé"
+      - "Le problème est en amont : ingress, LoadBalancer ou DNS externe"
+      - "Une NetworkPolicy bloque le pod api"
+    bonne: 1
+    explication: "Si l'intérieur du cluster joint le Service, Service, pod et policies sont hors de cause pour ce chemin. Remonte vers l'entrée."
+  - q: "Les requêtes d'inférence longues finissent en 504 au bout d'une minute, alors que le modèle répond en deux. Que fais-tu ?"
+    choix:
+      - "Tu augmentes le nombre de réplicas"
+      - "Tu corriges la readiness"
+      - "Tu allonges le timeout du controller par annotation"
+    bonne: 2
+    explication: "504 : le backend n'a pas répondu à temps, du point de vue du controller. Pour l'inférence longue, on règle le timeout par annotation."
+---
+
+« C'est injoignable » ne dit pas où. La méthode : partir du Service, descendre jusqu'au pod, puis remonter vers l'entrée. Chaque réponse élimine une moitié de la chaîne.
+
+## L'ordre des vérifications
+
+1. **Le Service a-t-il des cibles ?** `kubectl get endpoints`. `<none>` : selector ou readiness.
+2. **Le selector correspond-il ?** `kubectl get pods -l app=api --show-labels`. Rien : faute dans le selector ou dans le chart.
+3. **Le pod écoute-t-il sur le targetPort ?** `ss -ltnp` dans le pod. Cherche `0.0.0.0:8000`, pas `127.0.0.1`.
+4. **Joignable de l'intérieur ?** Un `curl` depuis netshoot. Ça marche : le problème est en amont. Ça échoue : Service, pod ou NetworkPolicy.
+5. **L'appli seule ?** `port-forward` sur le pod. Ça marche : l'application est saine, le problème est entre les deux.
+6. **Côté Ingress.** `ADDRESS` vide : aucun controller ne l'a pris ; vérifie `kubectl get ingressclass`, puis le log du controller.
+7. **Une NetworkPolicy ?** `kubectl get networkpolicy -A`, puis `describe`.
+
+```mermaid
+flowchart TD
+  %% scene: Depuis l'intérieur :: Un `curl` depuis netshoot vers le Service coupe la chaîne en deux. :: T
+  %% scene: Ça marche :: Service et pod répondent : cherche en amont, ingress, LoadBalancer ou DNS externe. :: T>UP, UP
+  %% scene: Ça échoue :: Le problème est dans le cluster : endpoints, port, ou NetworkPolicy. :: !T>IN, !IN
+  %% scene: L'appli seule :: Le `port-forward` court-circuite le réseau du cluster. S'il répond, l'application est saine. :: IN>PF, PF
+  T{{"<b>curl depuis netshoot</b><br/>vers api.platform:8080"}}
+  T -->|"répond"| UP["<b>En amont</b><br/>ingress, LB, DNS externe"]
+  T -->|"échoue"| IN["<b>Dans le cluster</b><br/>endpoints, port, policy"]
+  IN --> PF["<b>port-forward sur le pod</b><br/>l'appli seule répond-elle ?"]
+```
+
+## Les codes du controller, une carte
+
+| Code | Ce que ça veut dire | Où regarder |
+|---|---|---|
+| **404** | Aucune règle ne matche l'hôte ou le chemin | `host` mal écrit, classe absente |
+| **502** | Endpoint joint, connexion échouée | Pod qui n'écoute pas, mauvais targetPort |
+| **503** | Aucun endpoint | Readiness, selector |
+| **504** | Le backend n'a pas répondu à temps | Timeout du controller, à régler par annotation |
+
+Le 504 concerne directement la plateforme : pour les requêtes d'inférence longues, c'est ce timeout du controller qu'on ajuste par annotation.
+
+<Retenir>
+Endpoints, labels, port d'écoute, curl interne, port-forward, Ingress, policies : dans cet ordre. Au controller : 404 pas de règle, 502 connexion ratée, 503 pas d'endpoint, 504 trop lent.
+</Retenir>

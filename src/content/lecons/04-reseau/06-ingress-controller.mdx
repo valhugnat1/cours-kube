@@ -1,0 +1,90 @@
+---
+titre: "Un Ingress sans controller ne fait rien"
+etape: 4
+ordre: 6
+objectif: "Distinguer la ressource Ingress de l'ingress controller, et prévoir ce qui se passe quand ingressClassName est faux."
+commandes:
+  - c: "kubectl get ingressclass"
+    d: "les controllers disponibles et leur nom exact"
+  - c: "kubectl get ingress -A"
+    d: "ADDRESS vide : aucun controller n'a pris l'Ingress"
+  - c: "kubectl describe ingress <nom>"
+    d: "règles, backends et Events de l'Ingress"
+quiz:
+  - q: "Sur un cluster fraîchement créé, tu appliques un Ingress valide. `kubectl get ingress` montre `ADDRESS` vide, et aucune erreur. Pourquoi ?"
+    choix:
+      - "Le Secret TLS n'existe pas encore"
+      - "Aucun ingress controller n'est installé : l'Ingress est un objet inerte"
+      - "Le Service visé n'a pas d'endpoints"
+    bonne: 1
+    explication: "La ressource Ingress n'est qu'une liste de règles. Sans controller pour la lire, personne ne la traite, et rien ne le signale."
+  - q: "Ton chart met `ingressClassName: nginx`. Chez le client, `kubectl get ingressclass` affiche seulement `nginx-internal`. Que se passe-t-il ?"
+    choix:
+      - "Le controller `nginx-internal` le prend quand même, par défaut"
+      - "L'API refuse l'Ingress à l'application"
+      - "Personne ne traite l'Ingress, sans erreur : il faut surcharger la valeur du chart"
+    bonne: 2
+    explication: "Une classe inexistante, c'est un Ingress que personne ne prend. Aucune erreur, juste rien. C'est la valeur de chart à surcharger chez chaque client."
+  - q: "Ton chart règle la taille max d'upload par l'annotation `nginx.ingress.kubernetes.io/proxy-body-size`. Le client utilise Traefik. Que devient le réglage ?"
+    choix:
+      - "Il est ignoré : les annotations sont propres à chaque controller"
+      - "Traefik le traduit automatiquement"
+      - "L'Ingress est rejeté par l'API"
+    bonne: 0
+    explication: "Les annotations ne sont pas standard. Chaque controller lit les siennes : un chart écrit pour nginx-ingress ne porte pas ses réglages sur Traefik."
+---
+
+Un Service LoadBalancer par composant coûterait une IP et un équilibreur cloud chacun. L'**Ingress** mutualise : **un** point d'entrée HTTP(S) qui route par nom d'hôte et par chemin vers des Services internes.
+
+## Deux objets à ne pas confondre
+
+- La ressource **Ingress** : des règles de routage déclaratives. Elle ne fait rien seule.
+- L'**ingress controller** : un proxy (nginx, Traefik, HAProxy, Envoy, ou celui du cloud comme GKE Ingress) qui lit les Ingress et se configure. Il est lui-même exposé par un Service LoadBalancer ou NodePort.
+
+**Sans controller, un Ingress est un objet inerte.** Piège classique sur un cluster neuf.
+
+```mermaid
+flowchart TD
+  %% scene: Les règles :: Ton chart pose un Ingress avec `ingressClassName: nginx`. C'est une déclaration, rien de plus. :: I
+  %% scene: Le bon controller :: Le controller de la classe `nginx` lit l'Ingress, se configure et remplit `ADDRESS`. :: I>C1, C1, C1>SVC, SVC
+  %% scene: Classe absente :: Une classe qui n'existe pas, ou pas de classe : personne ne prend l'Ingress. Aucune erreur, `ADDRESS` vide. :: !I, !C2
+  I["<b>Ingress du chart</b><br/>ingressClassName: nginx"] -->|"classe nginx"| C1["<b>Controller nginx</b><br/>lit les règles, route"]
+  I -.->|"autre classe"| C2["<b>Controller traefik</b><br/>ignore cet Ingress"]
+  C1 --> SVC["<b>Services api et ui</b><br/>selon hôte et chemin"]
+```
+
+## Un Ingress, en lecture rapide
+
+```yaml
+metadata:
+  annotations:
+    nginx.ingress.kubernetes.io/proxy-body-size: 50m   # propre à nginx
+spec:
+  ingressClassName: nginx          # QUEL controller le traite
+  tls:
+    - hosts: [chat.client.example]
+      secretName: chat-tls         # Secret kubernetes.io/tls
+  rules:
+    - host: chat.client.example
+      http:
+        paths:
+          - path: /api
+            pathType: Prefix
+            backend:
+              service: { name: api, port: { number: 8080 } }
+```
+
+## Les quatre points à surveiller
+
+- **`ingressClassName`** : un cluster client peut avoir plusieurs controllers, ou un seul au nom inattendu (`nginx-internal`, `traefik`, `gce`, `openshift-default`). Sans classe ou avec une classe inexistante, personne ne traite l'Ingress. C'est **la** valeur de chart à surcharger chez chaque client.
+- **Les annotations** sont propres à chaque controller : timeouts, taille des uploads, réécriture de chemin, IP source autorisées. Elles ne passent pas d'un controller à l'autre.
+- **TLS** : le certificat est un Secret, que cert-manager (étape 9) peut générer et renouveler. Le controller termine TLS ; derrière, HTTP en clair.
+- **OpenShift** utilise par défaut des **Routes**. Les Ingress y sont convertis dans la plupart des cas, mais pas leurs annotations.
+
+<Piege>
+Un Ingress ignoré ne produit aucune erreur. Le réflexe : `kubectl get ingressclass`, puis comparer avec le `ingressClassName` rendu par ton chart.
+</Piege>
+
+<Retenir>
+L'Ingress déclare des règles, le controller les applique. Sans controller ou avec une mauvaise classe, rien ne se passe, en silence. Classe et annotations dépendent du client : à surcharger.
+</Retenir>

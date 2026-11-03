@@ -1,0 +1,87 @@
+---
+titre: "Un réseau plat, sans NAT, réalisé par le CNI"
+etape: 4
+ordre: 1
+objectif: "Énoncer les trois règles du modèle réseau de Kubernetes et dire pourquoi le CNI du client change ce que ton chart garantit."
+commandes:
+  - c: "kubectl get pods -o wide"
+    d: "l'IP de chaque pod et son nœud"
+  - c: "kubectl get svc -A"
+    d: "les IPs des Services, prises dans une autre plage"
+  - c: "kubectl -n kube-system get pods -o wide"
+    d: "repérer le CNI du cluster (calico, cilium, kindnet…)"
+quiz:
+  - q: "Un pod A sur le nœud 1 appelle un pod B sur le nœud 2. Quelle IP source B voit-il ?"
+    choix:
+      - "L'IP du nœud 1, après traduction d'adresse"
+      - "L'IP réelle du pod A"
+      - "L'IP du Service devant A"
+    bonne: 1
+    explication: "Règle 2 du modèle : tout pod joint tout pod sans NAT. Le destinataire voit l'IP réelle de l'appelant. Le SNAT vers l'IP du nœud, c'est pour la sortie du cluster."
+  - q: "Un chart configure un composant avec l'adresse `10.96.0.42`, l'IP du Service sur le cluster de dev. Chez un client, ça ne marche pas. Pourquoi ?"
+    choix:
+      - "Le service CIDR est fixé à la création du cluster et diffère d'un client à l'autre"
+      - "Les IPs de Service changent à chaque redémarrage de pod"
+      - "CoreDNS bloque les accès par IP"
+    bonne: 0
+    explication: "Les plages pod et service sont propres à chaque cluster. Une IP codée en dur casse le chart par construction : on passe par le nom DNS du Service."
+  - q: "Ton chart livre des NetworkPolicy. Le client te demande si ses composants sont isolés. Que vérifies-tu d'abord ?"
+    choix:
+      - "Que les policies sont bien dans le namespace de la plateforme"
+      - "Que kube-proxy tourne sur chaque nœud"
+      - "Quel CNI tourne sur le cluster et s'il applique les NetworkPolicy"
+    bonne: 2
+    explication: "Le CNI réalise le réseau. kindnet ou Flannel seul ignorent les NetworkPolicy, sans erreur. Avant d'affirmer une isolation, il faut savoir qui l'applique."
+---
+
+« La console ne répond pas », « l'API renvoie 502 » : chez un client, presque tout incident a l'air réseau. Pour remonter la chaîne, il faut d'abord savoir ce que Kubernetes promet, et qui tient la promesse.
+
+## Trois règles, un plugin
+
+Kubernetes ne fabrique pas le réseau. Il pose trois règles et laisse un plugin, le **CNI** (Container Network Interface), les réaliser :
+
+1. Chaque pod a sa propre IP, unique dans le cluster.
+2. Tout pod peut joindre tout pod, sur n'importe quel nœud, **sans NAT** : le destinataire voit l'IP réelle de l'appelant.
+3. Les agents d'un nœud (kubelet) peuvent joindre tous les pods du nœud.
+
+C'est un réseau **plat** : pas de ports à mapper comme avec `docker run -p`, pas de traduction d'adresses entre pods.
+
+```mermaid
+flowchart TD
+  %% scene: Une IP par pod :: Chaque pod reçoit une IP du pod CIDR, quel que soit son nœud. :: N1, N2, A, B
+  %% scene: Sans NAT :: A joint B directement, d'un nœud à l'autre. B voit l'IP réelle de A. :: A>B, A, B
+  %% scene: Le CNI fait le travail :: Ces règles, c'est le plugin CNI qui les réalise. Kubernetes ne fait que les exiger. :: CNI, CNI>A, CNI>B
+  subgraph N1["Nœud 1"]
+    A["<b>Pod A</b><br/>10.244.1.5"]
+  end
+  subgraph N2["Nœud 2"]
+    B["<b>Pod B</b><br/>10.244.2.8"]
+  end
+  A -->|"IP source : 10.244.1.5"| B
+  CNI["<b>Plugin CNI</b><br/>kindnet, Calico, Cilium…"] -.-> A
+  CNI -.-> B
+```
+
+## Deux plages, propres à chaque cluster
+
+Les IPs des pods viennent du **pod CIDR** (par exemple `10.244.0.0/16`), celles des Services du **service CIDR** (par exemple `10.96.0.0/12`). Ces plages sont fixées à la création du cluster et **diffèrent chez chaque client**. Un chart qui code une IP en dur est cassé par construction.
+
+## Le CNI, ce qui varie le plus
+
+| CNI | Où tu le verras | À savoir |
+|---|---|---|
+| kindnet | kind, ton lab | **N'applique pas** les NetworkPolicy |
+| Calico | on-prem, RKE2, kubeadm | NetworkPolicy complètes |
+| Cilium | GKE Dataplane V2, clusters récents | eBPF, remplace kube-proxy, policies L7 |
+| Flannel | k3s par défaut | Pas de NetworkPolicy seul |
+| OVN-Kubernetes | OpenShift | Ses propres objets réseau en plus |
+
+Conséquence directe : une NetworkPolicy de ton chart sera **appliquée ou ignorée** selon le CNI du client.
+
+<Piege>
+Dire « les composants sont isolés » parce que le chart livre des NetworkPolicy. Sans CNI qui les applique, elles ne font rien. Demande d'abord quel CNI tourne.
+</Piege>
+
+<Retenir>
+Une IP par pod, tout pod joint tout pod sans NAT. Le CNI réalise ce modèle et varie d'un client à l'autre : c'est lui qui décide si tes NetworkPolicy existent vraiment.
+</Retenir>

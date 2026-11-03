@@ -1,0 +1,77 @@
+---
+titre: "Cinq types de Service, empilés comme des poupées"
+etape: 4
+ordre: 3
+objectif: "Choisir entre ClusterIP, NodePort, LoadBalancer, headless et ExternalName, et expliquer un LoadBalancer resté en pending."
+commandes:
+  - c: "kubectl get svc -o wide"
+    d: "TYPE, CLUSTER-IP, EXTERNAL-IP et ports de chaque Service"
+  - c: "kubectl describe svc <nom>"
+    d: "les Events, utiles pour un LoadBalancer qui n'obtient rien"
+quiz:
+  - q: "Sur un cluster on-prem, le Service `type: LoadBalancer` de ton chart affiche `EXTERNAL-IP <pending>` depuis deux jours. Que se passe-t-il ?"
+    choix:
+      - "Le cloud met du temps à créer l'équilibreur, il faut attendre"
+      - "Personne ne fournit d'équilibreur : il faut MetalLB, un NodePort derrière un LB du client, ou changer le type"
+      - "Le selector du Service ne trouve aucun pod"
+    bonne: 1
+    explication: "Sans cloud-controller-manager ni MetalLB, personne ne répond à la demande : l'IP reste en attente pour toujours. Prévois une valeur de chart qui bascule le type."
+  - q: "Un client Kafka veut connaître l'IP de chaque broker pour faire son propre équilibrage. Quel Service ?"
+    choix:
+      - "Un ClusterIP classique"
+      - "Un ExternalName"
+      - "Un Service headless (`clusterIP: None`)"
+    bonne: 2
+    explication: "Headless : pas d'IP virtuelle, le DNS renvoie directement les IPs des pods. C'est aussi ce qui donne leur nom stable aux pods d'un StatefulSet."
+  - q: "La base Postgres du client est managée, hors du cluster. Tu veux que l'application continue d'appeler `postgres` sans changer sa config. Quel type ?"
+    choix:
+      - "ExternalName, un alias DNS vers le nom externe"
+      - "NodePort sur le port 5432"
+      - "LoadBalancer pointant vers la base"
+    bonne: 0
+    explication: "ExternalName crée un CNAME : `postgres` dans le cluster résout vers le nom de la base managée. Les autres types exposent des pods, ils ne pointent pas vers l'extérieur."
+---
+
+Le champ `type` d'un Service décide **d'où** on peut le joindre. Les trois premiers types s'emboîtent : chacun ajoute une couche au précédent.
+
+```mermaid
+flowchart TD
+  %% scene: ClusterIP :: Le défaut : une IP virtuelle joignable seulement depuis l'intérieur du cluster. :: CIP
+  %% scene: NodePort :: Ajoute un port de 30000 à 32767 ouvert sur chaque nœud, qui mène à la ClusterIP. :: NP, NP>CIP
+  %% scene: LoadBalancer :: Ajoute un équilibreur externe, demandé au cloud-controller-manager, qui vise les NodePorts. :: LB, LB>NP, NP>CIP
+  %% scene: Personne pour fournir :: On-prem sans MetalLB ou équivalent, la demande reste sans réponse : `EXTERNAL-IP` en `pending` pour toujours. :: !CCM, !LB>CCM
+  LB["<b>LoadBalancer</b><br/>IP fournie par le cloud"] --> NP["<b>NodePort</b><br/>port 30000-32767, chaque nœud"]
+  NP --> CIP["<b>ClusterIP</b><br/>IP virtuelle interne"]
+  LB -.->|"demande l'équilibreur"| CCM["<b>cloud-controller-manager</b><br/>ou MetalLB on-prem"]
+```
+
+## Les trois qui s'emboîtent
+
+- **ClusterIP** : l'IP virtuelle interne. Le défaut, pour toute communication entre composants.
+- **NodePort** : ClusterIP **plus** un port ouvert sur **chaque** nœud, joignable via `IP-de-n'importe-quel-nœud:port`. Rare en prod, utile en lab ou on-prem sans équilibreur, et base du LoadBalancer.
+- **LoadBalancer** : NodePort **plus** un équilibreur externe que le cloud-controller-manager demande au cloud. C'est l'entrée du cluster sur GKE, AWS ou Azure.
+
+## Les deux à part
+
+| Type | Ce qu'il fait | Usage |
+|---|---|---|
+| **Headless** (`clusterIP: None`) | Pas d'IP virtuelle : le DNS renvoie les IPs des pods | StatefulSets, clients qui équilibrent eux-mêmes (Kafka, gRPC) |
+| **ExternalName** | Un alias DNS (CNAME) vers un nom externe | Pointer `postgres` vers une base managée sans toucher la config |
+
+Les deux ne sont joignables que de l'intérieur du cluster.
+
+## Le classique on-prem
+
+Le chart demande `type: LoadBalancer`, le cluster n'a personne pour le fournir. `EXTERNAL-IP` reste à `<pending>`, sans autre erreur. Trois sorties :
+
+1. installer **MetalLB** ou un équivalent ;
+2. passer en **NodePort** et laisser le client placer son propre équilibreur devant ;
+3. prévoir une **valeur de chart** qui bascule le type selon l'environnement.
+
+<Piege>
+Attendre qu'un `<pending>` se résolve sur un cluster on-prem. Il ne bougera jamais : vérifie d'abord qu'il existe quelqu'un pour fournir l'IP.
+</Piege>
+
+<Retenir>
+ClusterIP pour l'interne, NodePort ajoute un port sur chaque nœud, LoadBalancer ajoute un équilibreur fourni par le cloud ou par MetalLB. Headless donne les IPs des pods, ExternalName un alias vers l'extérieur.
+</Retenir>

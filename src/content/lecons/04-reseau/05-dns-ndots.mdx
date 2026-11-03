@@ -1,0 +1,97 @@
+---
+titre: "Le nom DNS d'un Service, et le piège ndots"
+etape: 4
+ordre: 5
+objectif: "Écrire le nom DNS complet d'un Service, savoir quand la forme courte marche, et expliquer le problème ndots."
+commandes:
+  - c: "kubectl exec -it <pod> -- cat /etc/resolv.conf"
+    d: "les domaines de recherche et ndots vus par le pod"
+  - c: "kubectl exec -it <pod> -- nslookup api.platform"
+    d: "tester une résolution depuis le pod"
+  - c: "kubectl -n kube-system logs deploy/coredns --tail=50"
+    d: "les dernières requêtes et erreurs de CoreDNS"
+  - c: "kubectl run -it --rm netshoot --image=nicolaka/netshoot -- bash"
+    d: "un pod outil (dig, curl, nc, tcpdump) quand l'image n'a pas de shell"
+quiz:
+  - q: "Un pod du namespace `monitoring` appelle `http://api:8080`. Le Service `api` est dans `platform`. Que se passe-t-il ?"
+    choix:
+      - "La résolution échoue : `api` seul ne vaut que dans le même namespace"
+      - "Ça marche : CoreDNS cherche dans tous les namespaces"
+      - "Ça marche si le Service est de type ClusterIP"
+    bonne: 0
+    explication: "Le premier domaine de recherche est celui du namespace du pod. Depuis un autre namespace, il faut au moins `api.platform`, et dans une config, la forme complète."
+  - q: "Les logs CoreDNS sont pleins de NXDOMAIN pour `api.mistral.ai.platform.svc.cluster.local`. Le crawler appelle `api.mistral.ai`. Cause ?"
+    choix:
+      - "Le Service ExternalName vers mistral est mal configuré"
+      - "`ndots:5` : le nom a moins de 5 points, il est d'abord essayé avec chaque domaine de recherche"
+      - "CoreDNS n'a pas accès à Internet"
+    bonne: 1
+    explication: "Avec `ndots:5`, un nom de moins de 5 points passe d'abord par tous les domaines de recherche. D'où 3 à 4 requêtes inutiles par appel externe et des NXDOMAIN en série."
+  - q: "Quelle forme de nom mettre dans la configuration de la plateforme pour joindre le Service `api` du namespace `platform` ?"
+    choix:
+      - "`api`"
+      - "`api.platform`"
+      - "`api.platform.svc.cluster.local`"
+    bonne: 2
+    explication: "La forme complète résout toujours, depuis n'importe quel namespace, sans dépendre des domaines de recherche. Les formes courtes sont pratiques en debug, ambiguës en config."
+  - q: "Un composant appelle beaucoup d'API externes et ajoute de la latence DNS. Quel remède propose la source ?"
+    choix:
+      - "Passer le Service en headless"
+      - "Ajouter un point final aux noms externes ou baisser `ndots` via `dnsConfig`"
+      - "Redémarrer CoreDNS régulièrement"
+    bonne: 1
+    explication: "Un nom terminé par un point est absolu et résolu tel quel. Ou bien `dnsConfig.options` avec `ndots: 2` sur les pods qui appellent beaucoup l'extérieur."
+---
+
+Dans le cluster, on ne s'adresse pas par IP mais par nom. **CoreDNS**, qui tourne dans `kube-system`, répond pour la zone `cluster.local` et donne un nom à chaque Service.
+
+## La forme complète
+
+```
+<service>.<namespace>.svc.cluster.local
+api.platform.svc.cluster.local
+```
+
+Les pods d'un StatefulSet derrière un Service headless ont chacun leur nom : `db-0.db.platform.svc.cluster.local`.
+
+## Les formes courtes, grâce au resolv.conf
+
+Kubernetes injecte dans chaque pod des domaines de recherche :
+
+```
+search platform.svc.cluster.local svc.cluster.local cluster.local
+nameserver 10.96.0.10
+options ndots:5
+```
+
+- `api` : résolu si `api` est dans le **même** namespace ;
+- `api.platform` : depuis n'importe quel namespace ;
+- `api.platform.svc.cluster.local` : toujours. C'est la forme à mettre dans une configuration, sans ambiguïté.
+
+## Le piège ndots:5
+
+Avec `ndots:5`, tout nom de **moins de 5 points** est d'abord essayé avec chaque domaine de recherche, avant d'être résolu tel quel. `api.mistral.ai` n'a que 2 points.
+
+```mermaid
+flowchart TD
+  %% scene: Un appel externe :: Le crawler demande `api.mistral.ai`. Deux points, moins de cinq : la recherche commence par les domaines du cluster. :: Q, Q>T1, T1
+  %% scene: Échecs en série :: Chaque domaine de recherche donne un NXDOMAIN. Autant de requêtes perdues. :: !T1, !T1>T2, !T2, !T2>T3, !T3
+  %% scene: Enfin le vrai nom :: Le nom est résolu tel quel en dernier. Coût : 3 à 4 requêtes inutiles par appel et des logs CoreDNS pleins de NXDOMAIN. :: T3>OK, OK
+  Q["<b>Le pod demande</b><br/>api.mistral.ai"] --> T1["<b>…platform.svc.cluster.local</b><br/>NXDOMAIN"]
+  T1 --> T2["<b>…svc.cluster.local</b><br/>NXDOMAIN"]
+  T2 --> T3["<b>…cluster.local</b><br/>NXDOMAIN"]
+  T3 --> OK["<b>api.mistral.ai</b><br/>résolu, enfin"]
+```
+
+Résultat : des latences, et des logs CoreDNS pleins de NXDOMAIN. Deux remèdes :
+
+- un **point final** dans la config (`api.mistral.ai.`), qui rend le nom absolu ;
+- `dnsConfig.options` avec `ndots` à `"2"` sur les pods qui appellent beaucoup l'extérieur.
+
+## Diagnostiquer quand l'image est vide
+
+Une image `distroless` ou `scratch` n'a ni `nslookup` ni `sh`. Lance un pod outil à côté, `nicolaka/netshoot` : il a `nslookup`, `dig`, `curl`, `tcpdump`, `nc`, `traceroute`.
+
+<Retenir>
+`service.namespace.svc.cluster.local` résout toujours : c'est la forme des configs. Avec `ndots:5`, un nom externe court passe d'abord par tous les domaines du cluster : point final ou `ndots` plus bas.
+</Retenir>

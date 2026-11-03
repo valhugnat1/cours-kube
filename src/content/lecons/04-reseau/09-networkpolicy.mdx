@@ -1,0 +1,91 @@
+---
+titre: "NetworkPolicy : le pare-feu entre pods, s'il est appliqué"
+etape: 4
+ordre: 9
+objectif: "Lire une NetworkPolicy (pods protégés, ET contre OU, default deny) et dire pourquoi elle peut être présente et sans effet."
+commandes:
+  - c: "kubectl get networkpolicy -A"
+    d: "toutes les policies du cluster (alias : netpol)"
+  - c: "kubectl describe networkpolicy <nom>"
+    d: "pods protégés, sources et ports autorisés, en clair"
+quiz:
+  - q: "Tu poses une policy « default deny » sur le namespace, puis tu ouvres `api` vers `db`. Plus rien ne marche, même `api` vers `db`. Qu'as-tu oublié ?"
+    choix:
+      - "Une règle « allow all » en fin de liste"
+      - "L'egress vers CoreDNS sur le port 53"
+      - "Une policy sur le namespace `kube-system`"
+    bonne: 1
+    explication: "Avec un default deny en Egress, les requêtes DNS sont bloquées aussi : plus rien ne résout et tout semble cassé. Il faut toujours rouvrir DNS en egress."
+  - q: "Sur kind avec kindnet, tu appliques un default deny. `curl http://api:8080` depuis un autre pod passe encore. Pourquoi ?"
+    choix:
+      - "kindnet n'applique pas les NetworkPolicy : l'objet est accepté et ignoré"
+      - "Le default deny ne s'applique qu'aux nouveaux pods"
+      - "Les Services ClusterIP ne sont pas concernés par les policies"
+    bonne: 0
+    explication: "L'API accepte la policy, mais c'est le CNI qui la fait respecter. Sans CNI qui l'applique, aucune erreur, aucun effet. Chez un client : quel CNI, et applique-t-il les policies ?"
+  - q: "Dans `from`, un seul élément de liste contient à la fois `namespaceSelector` et `podSelector`. Qui peut entrer ?"
+    choix:
+      - "Tous les pods de ces namespaces, plus ces pods partout"
+      - "Personne : les deux sélecteurs s'annulent"
+      - "Seulement les pods qui ont ces labels ET sont dans ces namespaces"
+    bonne: 2
+    explication: "Même élément de liste = ET. Deux éléments séparés (deux tirets) = OU, bien plus large. Une différence d'indentation, des heures de debug."
+  - q: "Deux policies sélectionnent le même pod : l'une autorise l'entrée depuis `api`, l'autre depuis `worker`. Qui peut entrer ?"
+    choix:
+      - "Seulement `api` : la première policy l'emporte"
+      - "`api` et `worker` : les policies s'additionnent"
+      - "Personne : les deux se contredisent"
+    bonne: 1
+    explication: "Les policies sont additives : on prend l'union des autorisations. Il n'existe pas de règle « deny » à opposer."
+---
+
+Par défaut, **tout pod peut parler à tout pod** : c'est la règle 2 du modèle. Une **NetworkPolicy** restreint ça, pour les pods qu'elle sélectionne. Encore faut-il que le CNI l'applique.
+
+```yaml
+kind: NetworkPolicy             # db-only-from-api, namespace platform
+spec:
+  podSelector:
+    matchLabels: { app: db }             # les pods PROTÉGÉS
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels: { app: api }    # seuls eux entrent
+      ports: [{ port: 5432 }]
+  egress:
+    - to:
+        - namespaceSelector: {}          # tous les namespaces…
+          podSelector:
+            matchLabels: { k8s-app: kube-dns }   # …ET CoreDNS
+      ports: [{ port: 53, protocol: UDP }]
+```
+
+## Les règles de lecture
+
+- Dès qu'**une** policy sélectionne un pod pour un type (Ingress ou Egress), **tout ce qui n'est pas autorisé est refusé** pour ce type. Un pod sélectionné par aucune policy reste totalement ouvert.
+- Les policies sont **additives** : plusieurs policies sur un pod, on prend l'union. Il n'y a pas de règle « deny ».
+- `namespaceSelector` et `podSelector` dans le **même** élément de liste = **ET** ; dans deux éléments = **OU**.
+
+```mermaid
+flowchart TD
+  %% scene: Default deny :: Une policy avec `podSelector` vide et les deux types, sans règle : tout est fermé dans le namespace. :: DD, !DD>P
+  %% scene: On ouvre au cas par cas :: Une policy autorise `api` vers `db` sur 5432. Les policies s'additionnent. :: A, A>P, P
+  %% scene: Le DNS oublié :: Sans egress vers CoreDNS sur le port 53, plus rien ne résout. Tout semble cassé. :: !P>DNS, !DNS
+  %% scene: Le CNI décide :: Tout cela n'existe que si le CNI applique les policies. Sur kindnet : acceptées, ignorées, sans erreur. :: CNI, CNI>P
+  DD["<b>Default deny</b><br/>podSelector vide, aucune règle"] --> P["<b>Pods du namespace</b>"]
+  A["<b>Policy allow</b><br/>api vers db:5432"] --> P
+  P -->|"egress port 53"| DNS["<b>CoreDNS</b><br/>kube-system"]
+  P -.-|"règles tenues par"| CNI["<b>CNI</b><br/>applique, ou ignore"]
+```
+
+## Default deny, sans oublier le DNS
+
+Le pattern d'un namespace fermé : une policy avec `podSelector` vide et `policyTypes` Ingress et Egress, sans aucune règle. Ensuite on ouvre au cas par cas. **N'oublie jamais le DNS en egress.**
+
+## Présente et sans effet
+
+Une NetworkPolicy sans CNI qui l'applique est **acceptée par l'API et ignorée** : aucune erreur, aucune alerte. Sur kind avec kindnet, c'est exactement ce qui se passe. Les policies sont L3/L4 (IP, port) ; pour filtrer par chemin ou méthode HTTP, il faut Cilium ou un mesh.
+
+<Retenir>
+Une policy ferme tout ce qu'elle n'autorise pas, pour les pods qu'elle sélectionne ; les policies s'additionnent. Default deny, puis DNS, puis le reste. Et rien de tout ça n'existe si le CNI du client ne les applique pas.
+</Retenir>
