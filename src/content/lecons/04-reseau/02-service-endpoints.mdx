@@ -1,0 +1,90 @@
+---
+titre: "Les endpoints, la vraie liste des cibles d'un Service"
+etape: 4
+ordre: 2
+objectif: "Lire port et targetPort d'un Service, et donner les trois causes d'un Service sans endpoints."
+commandes:
+  - c: "kubectl get endpoints api"
+    d: "la commande n° 1 : les IP:port réellement ciblés"
+  - c: "kubectl get endpointslices -l kubernetes.io/service-name=api"
+    d: "la même liste, sous sa forme EndpointSlice"
+  - c: "kubectl get pods -l app=api --show-labels"
+    d: "les pods que le selector attrape vraiment"
+  - c: "kubectl get svc api -o wide"
+    d: "type, IP, ports et selector du Service"
+quiz:
+  - q: "`kubectl get endpoints api` affiche `<none>`, alors que trois pods `api` sont `Running 0/1`. Quelle est la cause la plus probable ?"
+    choix:
+      - "Le targetPort ne correspond pas au port du conteneur"
+      - "La readiness échoue : aucun pod n'est Ready"
+      - "kube-proxy est arrêté sur le nœud"
+    bonne: 1
+    explication: "`0/1` veut dire pas Ready. Le Service ne cible que les pods sélectionnés ET Ready. Un mauvais targetPort, lui, laisse des endpoints présents."
+  - q: "Les endpoints d'un Service sont vides. Laquelle de ces causes n'en fait PAS partie ?"
+    choix:
+      - "Le selector ne correspond à aucun label de pod"
+      - "Le Service n'a pas de selector du tout"
+      - "Le targetPort désigne un port où rien n'écoute"
+    bonne: 2
+    explication: "Le port n'est pas vérifié : avec un targetPort faux, les endpoints existent, c'est la connexion qui échoue. Les trois causes d'un `<none>` sont selector, readiness, absence de selector."
+  - q: "Dans un Service, `port: 8080` et `targetPort: 8000`. Que contacte un client du cluster ?"
+    choix:
+      - "Le Service sur 8080, redirigé vers le conteneur sur 8000"
+      - "Le conteneur directement sur 8080"
+      - "Le Service sur 8000, redirigé vers le conteneur sur 8080"
+    bonne: 0
+    explication: "`port` est celui du Service, que les clients appellent. `targetPort` est celui du conteneur, vers lequel le trafic est redirigé."
+---
+
+Un pod meurt, son IP disparaît. Le **Service** donne un nom et une adresse stables à un groupe de pods. Mais il ne fait rien lui-même : sur chaque nœud, kube-proxy (ou Cilium) installe des règles qui redirigent l'IP du Service vers les IPs des pods ciblés.
+
+## port et targetPort
+
+```yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: api
+spec:
+  type: ClusterIP          # le défaut
+  selector:
+    app: api
+  ports:
+    - name: http
+      port: 8080           # le port du Service
+      targetPort: 8000     # le port DU CONTENEUR (nombre ou nom)
+```
+
+Les clients appellent `api:8080`, le trafic arrive au conteneur sur `8000`. `targetPort` peut aussi être le **nom** d'un port déclaré dans le pod.
+
+## Les endpoints : qui est vraiment derrière
+
+Le Service ne cible que les pods **sélectionnés par label ET `Ready`**. La liste effective vit dans un objet séparé, l'Endpoints (ou ses EndpointSlices). `kubectl get endpoints api` est **la commande n° 1** du diagnostic réseau : elle dit si le Service a quelqu'un à qui parler.
+
+```mermaid
+flowchart TD
+  %% scene: Le selector filtre :: Le Service retient les pods qui portent `app=api`. Le pod `app=apii` n'est même pas regardé. :: S, S>P1, S>P2, !P3
+  %% scene: La readiness filtre encore :: Parmi eux, seuls les pods Ready entrent dans les endpoints. Le pod en échec de readiness en sort. :: P1>E, !P2, E
+  %% scene: Ce que voit le client :: Le client n'atteint que ce qui est dans les endpoints. Liste vide : échec de connexion. :: C>S, S>P1, P1>E, E
+  C["<b>Client</b><br/>appelle api:8080"] --> S["<b>Service api</b><br/>selector app=api"]
+  S --> P1["<b>Pod app=api</b><br/>Ready"]
+  S --> P2["<b>Pod app=api</b><br/>readiness en échec"]
+  S -.-x P3["<b>Pod app=apii</b><br/>faute de frappe"]
+  P1 --> E["<b>Endpoints api</b><br/>10.244.0.12:8000"]
+  P2 -.-x E
+  P1 ~~~ P3
+```
+
+## Trois causes, pas une de plus
+
+Un Service avec `ENDPOINTS <none>` a exactement trois causes possibles :
+
+1. **Le selector ne correspond à aucun label** de pod : faute de frappe, chart mal rendu.
+2. **Aucun pod n'est `Ready`** : readiness en échec, comme à l'étape 3.
+3. **Le Service n'a pas de selector** : c'est un Service « manuel », dont on gère les endpoints à la main, cas des services externes.
+
+Et une chose que les endpoints ne vérifient pas : le **port**. Un `targetPort` faux laisse des endpoints bien remplis, mais la connexion échoue. Symptôme différent, cause différente.
+
+<Retenir>
+Un Service vise les pods sélectionnés et Ready ; `kubectl get endpoints` montre lesquels. `<none>` : selector, readiness, ou pas de selector. Endpoints présents mais connexion en échec : regarde le targetPort.
+</Retenir>

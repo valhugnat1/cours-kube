@@ -1,0 +1,70 @@
+---
+titre: "Récap : une requête, du navigateur au pod et retour"
+etape: 4
+ordre: 80
+type: recap
+objectif: "Revoir toute l'étape sur un seul schéma : CNI, Service, endpoints, DNS, entrée, Ingress, NetworkPolicy et sortie."
+---
+
+Toute l'étape suit **une requête**. Elle entre par un nom public, traverse un équilibreur, un controller, un Service, des règles kube-proxy, et arrive à un pod Ready. Chaque maillon peut casser, chacun a sa commande. Lance le pas à pas avec ▶, ou avance à ton rythme avec ›.
+
+```mermaid
+flowchart TD
+  %% scene: Une IP par pod :: Le CNI donne une IP à chaque pod. Tout pod joint tout pod, sans NAT. Le CNI varie chez chaque client. :: CNI, CNI>POD, POD, CL
+  %% scene: Un nom stable :: Un pod du cluster appelle `api.platform.svc.cluster.local`. CoreDNS renvoie l'IP du Service. Gare à `ndots:5` pour les noms externes. :: CL, CL>CDNS, CDNS, CL>SVC, SVC
+  %% scene: Les vraies cibles :: Le Service vise les pods sélectionnés par label ET Ready. La liste réelle : `kubectl get endpoints`. :: SVC>EP, EP
+  %% scene: Endpoints vides :: `<none>` : selector faux, aucun pod Ready, ou pas de selector du tout. Le controller renverra 503. :: !EP, !SVC>EP
+  %% scene: Par connexion :: kube-proxy réécrit la destination à l'ouverture de la connexion. Pas de retry, et une connexion gRPC reste collée à un pod. :: EP>KP, KP, KP>POD, POD
+  %% scene: L'entrée publique :: Le navigateur résout le nom public vers l'IP du LoadBalancer, qui envoie vers le NodePort du controller. :: NAV, NAV>DNSP, DNSP, DNSP>LB, LB, LB>NPT, NPT
+  %% scene: Personne pour fournir :: On-prem sans MetalLB ni équivalent, le LoadBalancer reste en `pending` pour toujours. Rien n'entre. :: !LB, !DNSP>LB
+  %% scene: Le controller :: Son pod termine TLS, lit les Ingress de sa classe et route par hôte et chemin vers le Service. Gateway API fait de même avec ses routes. :: NPT>IC, IC, ING>IC, ING, IC>SVC
+  %% scene: Mauvaise classe :: Un `ingressClassName` qui n'existe pas : personne ne prend l'Ingress, `ADDRESS` vide, et 404. Aucune erreur. :: !ING, !ING>IC
+  %% scene: Les codes du controller :: 404 aucune règle, 502 connexion ratée vers un endpoint, 503 aucun endpoint, 504 backend trop lent. :: IC, !IC>SVC
+  %% scene: Le pare-feu entre pods :: Une NetworkPolicy ferme ce qu'elle n'autorise pas. Seulement si le CNI l'applique : sur kindnet, acceptée et ignorée. :: CNI>POL, POL, POL>POD
+  %% scene: La sortie :: Le pod sort avec l'IP du nœud. Avec un proxy imposé, `NO_PROXY` doit couvrir les plages internes. :: POD>PX, PX
+  NAV["<b>Navigateur</b>"] --> DNSP["<b>DNS public</b><br/>chat.client.example"]
+  DNSP --> LB["<b>LoadBalancer</b><br/>cloud ou MetalLB"]
+  LB --> NPT["<b>NodePort</b><br/>Service du controller"]
+  LB ~~~ ING["<b>Ingress</b><br/>ingressClassName"]
+  NPT --> IC["<b>Pod ingress controller</b><br/>TLS, hôte, chemin"]
+  ING -.->|"lu par sa classe"| IC
+  IC --> SVC["<b>Service api</b><br/>ClusterIP"]
+  CL["<b>Pod client du cluster</b><br/>api.platform…"] -->|"résout"| CDNS["<b>CoreDNS</b><br/>kube-system"]
+  IC ~~~ CL
+  CL --> SVC
+  SVC -->|"selector + Ready"| EP["<b>Endpoints</b><br/>IP:port des pods"]
+  EP -->|"kube-proxy"| KP["<b>Règles iptables, IPVS</b><br/>par connexion"]
+  KP --> POD["<b>Pod api</b><br/>port 8000"]
+  CNI["<b>CNI</b><br/>IPs, policies ou non"] -.-> POD
+  CNI --> POL["<b>NetworkPolicy</b><br/>appliquée ou ignorée"]
+  POL -.-> POD
+  POD -->|"egress"| PX["<b>Proxy de sortie</b><br/>NO_PROXY"]
+```
+
+## Ce que tu sais faire maintenant
+
+- **Énoncer le modèle plat** et demander quel CNI tourne chez le client. [Leçon 1](/l/04-reseau/01-modele-plat-cni/)
+- **Lire les endpoints** d'un Service et donner les trois causes d'un `<none>`. [Leçon 2](/l/04-reseau/02-service-endpoints/)
+- **Choisir un type de Service** et dénouer un LoadBalancer en `pending`. [Leçon 3](/l/04-reseau/03-types-service/)
+- **Expliquer l'équilibrage par connexion** et ce qu'ajoute un mesh. [Leçon 4](/l/04-reseau/04-kube-proxy-mesh/)
+- **Écrire le nom DNS complet** d'un Service et déjouer `ndots`. [Leçon 5](/l/04-reseau/05-dns-ndots/)
+- **Distinguer Ingress et controller**, et vérifier la classe. [Leçon 6](/l/04-reseau/06-ingress-controller/)
+- **Situer Gateway API** et l'API gateway de la plateforme. [Leçon 7](/l/04-reseau/07-gateway-api/)
+- **Retracer la chaîne** d'entrée, et la sortie par un proxy. [Leçon 8](/l/04-reseau/08-chaine-complete/)
+- **Lire une NetworkPolicy** et prouver qu'elle s'applique. [Leçon 9](/l/04-reseau/09-networkpolicy/)
+- **Diagnostiquer dans l'ordre** et lire 404, 502, 503, 504. [Leçon 10](/l/04-reseau/10-diagnostic-codes/)
+
+## Où tu en es dans la partie A
+
+```mermaid
+flowchart TD
+  E0["<b>✓ Étapes 0 à 3</b><br/>conteneurs, boucles, workloads"] --> E4["<b>✓ Étape 4, réseau</b><br/>du navigateur au pod"]
+  E4 --> E5["<b>Étape 5, stockage</b><br/>PV, PVC, StorageClass, CSI"]
+  E5 --> E6["<b>Étape 6</b><br/>config, secrets et accès"]
+```
+
+Tu sais maintenant où passe le trafic, et le prouver maillon par maillon. L'étape 5 s'attaque à ce qui doit survivre au pod : les volumes, et ce qui change d'un client à l'autre côté stockage, comme le CNI ici.
+
+<Retenir>
+Un Service ne vise que des pods sélectionnés et Ready ; `kubectl get endpoints` d'abord. Un Ingress sans controller de la bonne classe, une NetworkPolicy sans CNI qui l'applique : présents, acceptés, et sans effet. Remonte la chaîne maillon par maillon.
+</Retenir>

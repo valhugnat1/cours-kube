@@ -1,0 +1,74 @@
+---
+titre: "Gateway API, le successeur, et l'API gateway, l'autre"
+etape: 4
+ordre: 7
+objectif: "Situer les trois objets de Gateway API et distinguer l'ingress controller de l'API gateway de la plateforme."
+commandes:
+  - c: "kubectl get gatewayclass"
+    d: "les implémentations de Gateway API installées"
+  - c: "kubectl get gateway,httproute -A"
+    d: "les points d'entrée et les routes déclarés"
+quiz:
+  - q: "Chez un client sous Gateway API, l'équipe infra gère les certificats et les ports d'entrée. Quel objet ton chart applicatif doit-il fournir ?"
+    choix:
+      - "Une `GatewayClass`"
+      - "Une `HTTPRoute`, qui s'accroche à la `Gateway` existante"
+      - "Une `Gateway` par composant"
+    bonne: 1
+    explication: "Gateway API sépare les rôles : `GatewayClass` pour l'implémentation, `Gateway` pour l'entrée gérée par l'infra, `HTTPRoute` ou `GRPCRoute` pour les règles des équipes applicatives."
+  - q: "Tu veux envoyer 10 % du trafic vers une nouvelle version, en canari, de façon portable. Où est-ce standardisé ?"
+    choix:
+      - "Dans une annotation nginx de l'Ingress"
+      - "Dans le Service, avec deux selectors"
+      - "Dans Gateway API, qui standardise la pondération"
+    bonne: 2
+    explication: "Ce que l'Ingress laissait aux annotations de chaque controller (réécriture, en-têtes, pondération, gRPC), Gateway API le met dans ses objets standard."
+  - q: "Un client demande où sont appliqués les quotas et le rate limiting par utilisateur. Dans la chaîne typique de la plateforme, quel maillon ?"
+    choix:
+      - "L'API gateway, derrière l'ingress controller"
+      - "L'ingress controller"
+      - "Le LoadBalancer"
+    bonne: 0
+    explication: "L'ingress controller fait du routage L7 générique. L'API gateway ajoute authentification, quotas, rate limiting et transformation. Les deux coexistent souvent."
+---
+
+L'Ingress est figé : tout ce qui dépasse le routage simple passe par des annotations propres à chaque controller. **Gateway API** le remplace progressivement. Et il ne faut pas le confondre avec l'**API gateway** de la plateforme, qui est autre chose.
+
+## Trois objets, trois rôles
+
+```mermaid
+flowchart TD
+  %% scene: L'implémentation :: La `GatewayClass` dit quel logiciel fait le travail : Cilium, Envoy Gateway, celle de GKE… :: GC
+  %% scene: L'entrée, côté infra :: La `Gateway` déclare un point d'entrée, ses ports et ses certificats. L'équipe infra la gère. :: GC>GW, GW
+  %% scene: Les routes, côté applis :: Les `HTTPRoute` et `GRPCRoute` portent les règles de routage. C'est ce que ton chart livre. :: GW>HR, HR, HR>S, S
+  GC["<b>GatewayClass</b><br/>l'implémentation"] --> GW["<b>Gateway</b><br/>ports, certificats · infra"]
+  GW --> HR["<b>HTTPRoute, GRPCRoute</b><br/>règles · équipes applis"]
+  HR --> S["<b>Services</b><br/>de la plateforme"]
+```
+
+Gateway API standardise ce qui était des annotations : réécriture, en-têtes, **pondération pour du canari**, gRPC. Sur GKE et avec Cilium ou Envoy Gateway, c'est déjà le défaut. Ton chart devra probablement rendre l'un ou l'autre, Ingress ou routes, selon le client.
+
+## Ingress controller et API gateway
+
+Les deux s'appellent « gateway » dans les conversations, mais ne font pas le même métier.
+
+| | Ingress controller | API gateway |
+|---|---|---|
+| Rôle | Routage L7 générique | Logique d'API de la plateforme |
+| Ce qu'il fait | Hôte, chemin, TLS | Authentification, quotas, rate limiting, transformation |
+| Exemples | nginx, Traefik, GKE | Kong, Envoy, Tyk, composant maison |
+
+Dans la plateforme, la chaîne typique est :
+
+```mermaid
+flowchart TD
+  LB["<b>LoadBalancer</b><br/>IP d'entrée"] --> IC["<b>Ingress controller</b><br/>routage, TLS"]
+  IC --> AG["<b>API gateway</b><br/>auth, quotas, rate limit"]
+  AG --> SV["<b>Services</b><br/>API, inférence, UI"]
+```
+
+Les deux existent souvent en même temps. Quand un client demande « où sont appliqués les quotas », la réponse n'est pas l'Ingress. L'étape 12 reprendra cette chaîne au niveau de la plateforme, avec le durcissement de la gateway.
+
+<Retenir>
+Gateway API sépare l'implémentation, l'entrée gérée par l'infra et les routes des applis, et standardise ce qui était des annotations. L'API gateway est un autre maillon, derrière l'ingress : auth, quotas, rate limiting.
+</Retenir>

@@ -1,0 +1,195 @@
+---
+titre: "Lab : Services, DNS, Ingress et NetworkPolicy ignorée"
+etape: 4
+ordre: 90
+type: lab
+duree: 15
+objectif: "Exposer deux applis par Service et Ingress, les joindre par DNS, casser chaque maillon et lire le symptôme."
+---
+
+Sur ton PC, cluster kind `lab` de l'étape 0, étape 3 faite. Garde un pod netshoot sous la main : c'est ton poste d'observation à l'intérieur du cluster.
+
+## 1. Prépare le terrain
+
+```bash
+kubectl config current-context    # doit être kind-lab
+kubectl create namespace lab4 && kubens lab4
+```
+
+## 2. Deux applis, deux Services
+
+Écris `apps.yaml` : `api` (2 réplicas, `hashicorp/http-echo`, écoute sur 8000, Service 8080 vers 8000) et `ui` (`nginx:1.27`, Service 80).
+
+```yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata: { name: api }
+spec:
+  replicas: 2
+  selector: { matchLabels: { app: api } }
+  template:
+    metadata: { labels: { app: api } }
+    spec:
+      containers:
+        - name: api
+          image: hashicorp/http-echo
+          args: ["-text=api", "-listen=:8000"]
+---
+apiVersion: v1
+kind: Service
+metadata: { name: api }
+spec:
+  selector: { app: api }
+  ports: [{ name: http, port: 8080, targetPort: 8000 }]
+```
+
+```bash
+kubectl apply -f apps.yaml
+kubectl create deployment ui --image=nginx:1.27
+kubectl expose deploy ui --port=80
+kubectl get svc,endpoints         # api : deux IP:8000 ; ui : une IP:80
+```
+
+## 3. Le DNS depuis un pod
+
+```bash
+kubectl run -it --rm t --image=nicolaka/netshoot -- bash
+cat /etc/resolv.conf              # search lab4.svc.cluster.local … ndots:5
+nslookup api ; nslookup api.lab4 ; nslookup api.lab4.svc.cluster.local
+nslookup ui.default               # échoue : ui n'existe pas dans default
+curl -s http://api:8080 ; curl -s http://api:8080 ; curl -s http://api:8080
+exit
+```
+
+Les trois formes de nom résolvent la même IP de Service. Les réponses sont identiques : le corps ne dit pas quel pod a répondu. Relance avec `curl -v` : chaque `curl` ouvre sa propre connexion vers l'IP du Service, et kube-proxy choisit un pod à chaque connexion.
+
+## 4. Casse le selector
+
+Mets `selector: { app: apii }` dans le Service `api`, applique.
+
+```bash
+kubectl get endpoints api         # <none>
+```
+
+Depuis netshoot, `curl http://api:8080` échoue. Remets `app: api`.
+
+## 5. Casse le targetPort
+
+Mets `targetPort: 8001`, applique.
+
+```bash
+kubectl get endpoints api         # les endpoints existent, en :8001
+kubectl exec deploy/api -- ss -ltnp   # si l'image n'a pas ss, regarde depuis netshoot avec nc -zv <IP du pod> 8001
+```
+
+Le port n'est pas vérifié : les endpoints sont là, mais `curl` échoue, rien n'écoute sur 8001. Répare. Retiens la différence avec l'étape 3 : ici le pod est Ready, c'est le Service qui vise le mauvais port.
+
+## 6. Readiness et endpoints
+
+Ajoute au conteneur `api` une readiness `httpGet` sur `/`, port 8000. Applique, puis passe-la sur le port 9999.
+
+```bash
+kubectl get pods                  # Running, mais 0/1
+kubectl get endpoints api         # se vide
+```
+
+Remets le port 8000.
+
+## 7. NodePort
+
+```bash
+kubectl patch svc ui -p '{"spec":{"type":"NodePort"}}'
+kubectl get svc ui                # note le port 3xxxx
+docker inspect lab-control-plane -f '{{.NetworkSettings.Networks.kind.IPAddress}}'
+curl http://<ip>:<nodeport>       # page nginx
+```
+
+Sur macOS, l'IP du conteneur Docker n'est pas routable : passe par `kubectl port-forward svc/ui 8081:80` et retiens le principe.
+
+## 8. Ingress
+
+Installe le controller nginx pour kind :
+
+```bash
+kubectl apply -f https://raw.githubusercontent.com/kubernetes/ingress-nginx/main/deploy/static/provider/kind/deploy.yaml
+kubectl -n ingress-nginx rollout status deploy/ingress-nginx-controller
+kubectl get ingressclass          # note le nom
+```
+
+Écris `ingress.yaml` : hôte `lab.local`, `/api` vers `api:8080`, `/` vers `ui:80`, `pathType: Prefix`, et le `ingressClassName` que tu viens de lire.
+
+```bash
+kubectl apply -f ingress.yaml
+kubectl get ingress               # ADDRESS doit se remplir
+kubectl -n ingress-nginx port-forward svc/ingress-nginx-controller 8443:443 8080:80
+```
+
+Dans un second terminal :
+
+```bash
+curl -H 'Host: lab.local' http://localhost:8080/api      # api
+curl -H 'Host: lab.local' http://localhost:8080/         # page nginx
+curl -i -H 'Host: autre.local' http://localhost:8080/    # 404 : aucune règle
+```
+
+## 9. Provoque un 503 puis un 502
+
+Casse la readiness de `api` (port 9999) : `curl` sur `/api` donne **503**. Répare, puis mets `targetPort: 8001` : **502**. Après chacun :
+
+```bash
+kubectl -n ingress-nginx logs deploy/ingress-nginx-controller --tail=5
+```
+
+Lis la ligne correspondante. Répare tout.
+
+## 10. L'Ingress ignoré
+
+Mets `ingressClassName: nexistepas`, applique. Aucune erreur, `ADDRESS` se vide, et `curl` sur `lab.local` répond 404. C'est le piège silencieux. Remets la bonne classe.
+
+## 11. La NetworkPolicy ignorée
+
+Écris `deny.yaml` : une NetworkPolicy `default-deny`, `podSelector: {}`, `policyTypes: [Ingress, Egress]`, sans règle.
+
+```bash
+kubectl apply -f deny.yaml
+kubectl get netpol                # l'objet existe
+kubectl run -it --rm t --image=nicolaka/netshoot -- curl -s http://api:8080   # ça passe encore
+```
+
+kindnet n'applique pas les policies. Note dans ta liste « à vérifier chez un client » : *quel CNI, et applique-t-il les policies ?*
+
+## 12. Bonus, 20 minutes : un vrai CNI
+
+Un second cluster sans CNI par défaut, avec Cilium :
+
+```bash
+cat <<EOF > kind-cilium.yaml
+kind: Cluster
+apiVersion: kind.x-k8s.io/v1alpha4
+networking:
+  disableDefaultCNI: true
+  kubeProxyMode: none
+EOF
+kind create cluster --name labnet --config kind-cilium.yaml
+helm repo add cilium https://helm.cilium.io && helm repo update
+helm install cilium cilium/cilium -n kube-system --set kubeProxyReplacement=true \
+  --set k8sServiceHost=labnet-control-plane --set k8sServicePort=6443
+kubectl -n kube-system rollout status ds/cilium
+```
+
+Recrée le namespace `lab4`, puis rejoue les points 2 et 11 : cette fois le default deny bloque. Ajoute une policy qui autorise le DNS, puis une pour `api`, jusqu'à ce que ça repasse. Pour voir les paquets refusés en direct :
+
+```bash
+kubectl -n kube-system exec ds/cilium -- cilium monitor --type drop
+```
+
+Supprime ensuite ce cluster (`kind delete cluster --name labnet`) ou garde-le pour l'étape 12.
+
+## 13. Nettoie
+
+```bash
+kubectl config use-context kind-lab
+kubectl delete namespace lab4
+```
+
+Garde ingress-nginx, il resservira.
