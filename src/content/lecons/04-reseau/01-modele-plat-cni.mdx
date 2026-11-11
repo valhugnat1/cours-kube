@@ -34,11 +34,27 @@ quiz:
     explication: "Le CNI réalise le réseau. kindnet ou Flannel seul ignorent les NetworkPolicy, sans erreur. Avant d'affirmer une isolation, il faut savoir qui l'applique."
 ---
 
-« La console ne répond pas », « l'API renvoie 502 » : chez un client, presque tout incident a l'air réseau. Pour remonter la chaîne, il faut d'abord savoir ce que Kubernetes promet, et qui tient la promesse.
+<Idee>
+Kubernetes ne fabrique pas le réseau. Il exige trois règles simples (une IP par pod, tout pod joint tout pod, sans traduction d'adresse) et laisse un plugin, le **CNI**, les réaliser.
+</Idee>
+
+<Analogie>
+Une entreprise où chaque salarié a **sa ligne directe**. N'importe qui appelle n'importe qui, et le numéro qui s'affiche est le vrai. L'**installateur télécom** qui a câblé l'immeuble, c'est le CNI : chaque entreprise a le sien. On garde cette image de téléphonie pendant toute l'étape.
+</Analogie>
+
+## La carte de l'étape
+
+« La console ne répond pas », « l'API renvoie 502 » : chez un client, presque tout incident a l'air réseau. Voici le trajet d'une requête. Chaque leçon zoome sur une boîte.
+
+```mermaid
+flowchart TD
+  NAV["<b>Navigateur</b><br/>hors du cluster"]:::ext --> IC["<b>Ingress controller</b><br/>l'entrée · leçons 6 à 8"]:::moteur
+  IC --> SVC["<b>Service</b><br/>adresse stable · leçons 2 à 5"]:::regle
+  SVC --> POD["<b>Pods</b><br/>une IP chacun · cette leçon"]:::cible
+  CNI["<b>CNI</b><br/>câble le tout · leçons 1 et 9"]:::moteur -.-> POD
+```
 
 ## Trois règles, un plugin
-
-Kubernetes ne fabrique pas le réseau. Il pose trois règles et laisse un plugin, le **CNI** (Container Network Interface), les réaliser :
 
 1. Chaque pod a sa propre IP, unique dans le cluster.
 2. Tout pod peut joindre tout pod, sur n'importe quel nœud, **sans NAT** : le destinataire voit l'IP réelle de l'appelant.
@@ -48,17 +64,17 @@ C'est un réseau **plat** : pas de ports à mapper comme avec `docker run -p`, p
 
 ```mermaid
 flowchart TD
-  %% scene: Une IP par pod :: Chaque pod reçoit une IP du pod CIDR, quel que soit son nœud. :: N1, N2, A, B
-  %% scene: Sans NAT :: A joint B directement, d'un nœud à l'autre. B voit l'IP réelle de A. :: A>B, A, B
+  %% scene: Une IP par pod :: Chaque pod reçoit une IP du pod CIDR, quel que soit son nœud. C'est sa ligne directe. :: N1, N2, A, B
+  %% scene: Sans NAT :: A joint B directement, d'un nœud à l'autre. B voit l'IP réelle de A : le vrai numéro s'affiche. :: A>B, A, B
   %% scene: Le CNI fait le travail :: Ces règles, c'est le plugin CNI qui les réalise. Kubernetes ne fait que les exiger. :: CNI, CNI>A, CNI>B
   subgraph N1["Nœud 1"]
-    A["<b>Pod A</b><br/>10.244.1.5"]
+    A["<b>Pod A</b><br/>10.244.1.5"]:::ext
   end
   subgraph N2["Nœud 2"]
-    B["<b>Pod B</b><br/>10.244.2.8"]
+    B["<b>Pod B</b><br/>10.244.2.8"]:::cible
   end
   A -->|"IP source : 10.244.1.5"| B
-  CNI["<b>Plugin CNI</b><br/>kindnet, Calico, Cilium…"] -.-> A
+  CNI["<b>Plugin CNI</b><br/>kindnet, Calico, Cilium…"]:::moteur -.-> A
   CNI -.-> B
 ```
 
@@ -68,18 +84,20 @@ Les IPs des pods viennent du **pod CIDR** (par exemple `10.244.0.0/16`), celles 
 
 ## Le CNI, ce qui varie le plus
 
-| CNI | Où tu le verras | À savoir |
+| CNI | Où tu le verras | NetworkPolicy |
 |---|---|---|
-| kindnet | kind, ton lab | **N'applique pas** les NetworkPolicy |
-| Calico | on-prem, RKE2, kubeadm | NetworkPolicy complètes |
-| Cilium | GKE Dataplane V2, clusters récents | eBPF, remplace kube-proxy, policies L7 |
-| Flannel | k3s par défaut | Pas de NetworkPolicy seul |
-| OVN-Kubernetes | OpenShift | Ses propres objets réseau en plus |
+| kindnet | kind, ton lab | ✘ ignorées |
+| Calico | on-prem, RKE2, kubeadm | ✔ complètes |
+| Cilium | GKE Dataplane V2, clusters récents | ✔ jusqu'au L7 (eBPF, remplace kube-proxy) |
+| Flannel | k3s par défaut | ✘ pas seul |
+| OVN-Kubernetes | OpenShift | ✔ plus ses propres objets réseau |
 
-Conséquence directe : une NetworkPolicy de ton chart sera **appliquée ou ignorée** selon le CNI du client.
+<Terrain>
+Une NetworkPolicy de ton chart sera **appliquée ou ignorée** selon le CNI du client. « Quel CNI tourne ici ? » est la première question réseau à poser.
+</Terrain>
 
 <Piege>
-Dire « les composants sont isolés » parce que le chart livre des NetworkPolicy. Sans CNI qui les applique, elles ne font rien. Demande d'abord quel CNI tourne.
+Dire « les composants sont isolés » parce que le chart livre des NetworkPolicy. Sans CNI qui les applique, elles ne font rien.
 </Piege>
 
 <Retenir>

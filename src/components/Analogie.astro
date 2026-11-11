@@ -1,0 +1,10 @@
+---
+// Encadré « analogie » : une image du quotidien, la même tout au long d'une étape.
+---
+<aside class="encart analogie"><p class="encart-titre">Analogie</p><slot /></aside>
+<style>
+  .encart { padding: 0.85rem 1rem 0.1rem; margin: 1.25rem 0; }
+  .encart-titre { font-weight: 650; margin: 0 0 0.3rem; font-size: 0.95rem; }
+  .analogie { background: var(--bleu-clair); border-left: 4px solid var(--bleu); border-radius: 0 var(--rayon) var(--rayon) 0; }
+  .analogie .encart-titre { color: var(--bleu); }
+</style>

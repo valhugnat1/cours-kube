@@ -32,45 +32,72 @@ quiz:
     explication: "Le mesh injecte un proxy à côté de chaque pod. Il change le comportement réseau, et un Job dont le sidecar tourne encore ne finit plus. C'est le symptôme typique."
 ---
 
-Le nom trompe : kube-proxy ne « proxifie » rien au sens applicatif. Le savoir t'évite de chercher un bug dans ton service d'inférence quand c'est l'équilibrage qui est en cause.
+<Idee>
+kube-proxy ne lit pas tes requêtes. Il choisit un pod **une seule fois, à l'ouverture de la connexion**, puis tout ce qui passe par cette connexion va au même pod. Tout ce qui est plus fin (réessayer, chiffrer) est le travail d'un autre outil.
+</Idee>
 
-## Ce qu'il fait vraiment
+<Analogie>
+Au standard, l'aiguillage se fait **au décroché**. Une fois en ligne avec un agent, tu restes avec lui jusqu'à ce que tu raccroches, même si tu poses cent questions. Et si ça coupe, le standard ne rappelle pas. Le **mesh**, c'est un assistant assis à côté de chaque salarié : il chiffre, rappelle et note tout.
+</Analogie>
 
-Sur chaque nœud, kube-proxy écrit des règles **iptables** (ou **IPVS**) qui réécrivent l'adresse de destination des paquets : l'IP du Service devient l'IP d'un pod des endpoints. Avec Cilium, le noyau fait ce travail en eBPF et kube-proxy disparaît.
+## Ce que kube-proxy fait vraiment
 
-Deux conséquences :
-
-- **L'équilibrage est par connexion, pas par requête.** Le pod est choisi à l'ouverture de la connexion. Une connexion HTTP keep-alive ou gRPC reste collée au même pod, avec toutes ses requêtes. Surprise fréquente sur les services d'inférence.
-- **Pas de retry, pas de circuit breaker.** kube-proxy ne voit que des paquets. Pour ça, il faut un proxy applicatif : ingress, gateway ou mesh.
+Le nom trompe : il ne « proxifie » rien au sens applicatif. Sur chaque nœud, il écrit des règles **iptables** (ou **IPVS**) qui réécrivent l'adresse de destination des paquets : l'IP du Service devient l'IP d'un pod des endpoints. Avec Cilium, le noyau fait ce travail en eBPF et kube-proxy disparaît.
 
 ```mermaid
 flowchart TD
-  %% scene: Une connexion s'ouvre :: Le client ouvre une connexion vers l'IP du Service. La règle du nœud choisit un pod une fois pour toutes. :: C, C>R, R, R>P1
+  %% scene: Une connexion s'ouvre :: Le client ouvre une connexion vers l'IP du Service. La règle du nœud choisit un pod une fois pour toutes : c'est le décroché. :: C, C>R, R, R>P1
   %% scene: Toutes les requêtes suivent :: Les requêtes de cette connexion keep-alive ou gRPC arrivent toutes au même pod. :: P1, R>P1
   %% scene: Les autres attendent :: Les autres pods ne reçoivent rien de ce client tant que la connexion vit. :: !P2, !P3
-  C["<b>Client gRPC</b><br/>une connexion longue"] --> R["<b>Règle iptables du nœud</b><br/>IP du Service vers un pod"]
-  R -->|"choisi à l'ouverture"| P1["<b>Pod 1</b><br/>reçoit tout"]
+  C["<b>Client gRPC</b><br/>une connexion longue"]:::ext --> R["<b>Règle iptables du nœud</b><br/>IP du Service vers un pod"]:::moteur
+  R -->|"choisi à l'ouverture"| P1["<b>Pod 1</b><br/>reçoit tout"]:::cible
   R -.-> P2["<b>Pod 2</b><br/>inactif"]
   R -.-> P3["<b>Pod 3</b><br/>inactif"]
 ```
 
+Deux conséquences :
+
+- **L'équilibrage est par connexion, pas par requête.** Une connexion HTTP keep-alive ou gRPC reste collée au même pod, avec toutes ses requêtes.
+- **Pas de retry, pas de circuit breaker.** kube-proxy ne voit que des paquets. Pour ça, il faut un proxy applicatif : ingress, gateway ou mesh.
+
+<Terrain>
+Surprise fréquente sur les services d'inférence : trois pods, un seul qui chauffe. Avant de chercher un bug dans ton service, pense à l'équilibrage par connexion.
+</Terrain>
+
 ## Le service mesh, en une minute
 
-Istio, Linkerd, Cilium mesh : un proxy à côté de chaque pod (ou dans le noyau pour Cilium) prend en charge ce que kube-proxy ne fait pas :
+Istio, Linkerd, Cilium mesh : un proxy à côté de chaque pod (ou dans le noyau pour Cilium) prend en charge ce que kube-proxy ne fait pas.
 
-- mTLS entre services ;
-- retries, timeouts, circuit breaking ;
-- métriques et traces uniformes, routage fin.
+<Compare>
+<Cas titre="kube-proxy">
 
-Le prix est une complexité réelle. Tu le croiseras chez des clients qui l'imposent, souvent avec Istio ou OpenShift Service Mesh.
+- voit des paquets
+- un pod par connexion
+- ✘ retries
+- ✘ mTLS
+- déjà là, rien à gérer
+
+</Cas>
+<Cas titre="Service mesh">
+
+- voit des requêtes
+- routage fin
+- ✔ retries, timeouts, circuit breaking
+- ✔ mTLS, métriques et traces
+- une complexité réelle
+
+</Cas>
+</Compare>
+
+Tu le croiseras chez des clients qui l'imposent, souvent avec Istio ou OpenShift Service Mesh.
 
 ```mermaid
 flowchart TD
   subgraph POD["Ton pod, chez un client sous mesh"]
-    APP["<b>Ton conteneur</b><br/>ce que le chart déclare"]
-    SC["<b>Sidecar injecté</b><br/>mTLS, retries, métriques"]
+    APP["<b>Ton conteneur</b><br/>ce que le chart déclare"]:::cible
+    SC["<b>Sidecar injecté</b><br/>mTLS, retries, métriques"]:::moteur
   end
-  SC -->|"tout le trafic passe par lui"| NET["<b>Le reste du cluster</b>"]
+  SC -->|"tout le trafic passe par lui"| NET["<b>Le reste du cluster</b>"]:::ext
 ```
 
 <Piege>

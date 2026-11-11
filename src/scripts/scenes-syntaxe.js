@@ -6,7 +6,7 @@
 //
 // Éléments, séparés par des virgules :
 //   A      le nœud (ou le subgraph) A s'allume
-//   !A     le nœud A s'allume en alerte (ambre : annulé, bloqué, perdu)
+//   !A     le nœud A s'allume en alerte (rouge : annulé, bloqué, perdu)
 //   A>B    un jeton circule le long de la flèche entre A et B, dans ce sens
 //          (la flèche peut être écrite B --> A dans le schéma : le jeton la remonte)
 //   !A>B   idem, jeton en alerte
@@ -40,3 +40,13 @@ function lireElement(brut) {
   const m = s.match(/^([\w-]+)\s*>\s*([\w-]+)$/);
   return m ? { type: 'arete', de: m[1], vers: m[2], alerte } : { type: 'noeud', id: s, alerte };
 }
+
+// Rôles des nœuds, partagés par le site (légende, couleurs dans global.css) et le contrôle qualité.
+// Dans un schéma : A["…"]:::regle. Une couleur = un rôle, le même dans toutes les leçons.
+export const ROLES = {
+  ext: 'qui appelle',
+  regle: 'règle écrite',
+  moteur: 'qui l’applique',
+  cible: 'destination',
+  ko: 'échec',
+};

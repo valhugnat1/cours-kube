@@ -14,6 +14,10 @@
   --ambre-clair: #fbeed6;
   --rouge: #b3261e;
   --rouge-clair: #fbe4e2;
+  --bleu: #1f5fbf;       /* analogies ; dans les schémas : qui appelle */
+  --bleu-clair: #e3edfb;
+  --violet: #6b3fc4;     /* terrain ; dans les schémas : la règle écrite */
+  --violet-clair: #eee8fb;
   --code-fond: #e8eeec;
   --rayon: 10px;
   --mesure: 36rem;
@@ -33,6 +37,10 @@
     --ambre-clair: #3a2c12;
     --rouge: #f08a82;
     --rouge-clair: #3d1d1b;
+    --bleu: #7fb0f5;
+    --bleu-clair: #182b47;
+    --violet: #b79cf5;
+    --violet-clair: #2a2147;
     --code-fond: #1f2d33;
     color-scheme: dark;
   }
@@ -93,6 +101,21 @@ th { font-weight: 650; }
 pre:has(> code.language-mermaid) { color: transparent; min-height: 9rem; background: transparent !important; border: 1px dashed var(--trait); }
 pre.schema-erreur { color: var(--encre); }
 
+/* Rôles dans les schémas : A["…"]:::role. Une couleur = un rôle, le même dans toute l'étape.
+   La légende sous le schéma est ajoutée par schemas.ts. */
+.schema g.node.ext :is(rect, polygon, circle, path, ellipse) { fill: var(--bleu-clair) !important; stroke: var(--bleu) !important; }
+.schema g.node.regle :is(rect, polygon, circle, path, ellipse) { fill: var(--violet-clair) !important; stroke: var(--violet) !important; }
+.schema g.node.moteur :is(rect, polygon, circle, path, ellipse) { fill: var(--ambre-clair) !important; stroke: var(--ambre) !important; }
+.schema g.node.cible :is(rect, polygon, circle, path, ellipse) { fill: var(--pin-clair) !important; stroke: var(--pin) !important; }
+.schema g.node.ko :is(rect, polygon, circle, path, ellipse) { fill: var(--rouge-clair) !important; stroke: var(--rouge) !important; }
+.legende { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.15rem 0.9rem; margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--encre-douce); }
+.legende span::before { content: ''; display: inline-block; width: 0.7em; height: 0.7em; border-radius: 3px; margin-right: 0.35em; border: 1.5px solid var(--c); background: var(--f); }
+.legende .ext { --c: var(--bleu); --f: var(--bleu-clair); }
+.legende .regle { --c: var(--violet); --f: var(--violet-clair); }
+.legende .moteur { --c: var(--ambre); --f: var(--ambre-clair); }
+.legende .cible { --c: var(--pin); --f: var(--pin-clair); }
+.legende .ko { --c: var(--rouge); --f: var(--rouge-clair); }
+
 /* Schémas animés pas à pas (src/scripts/scenes.ts) */
 .scenes { margin: 1.25rem 0; }
 .schema.anime { margin-bottom: 0.5rem; }
@@ -101,13 +124,14 @@ pre.schema-erreur { color: var(--encre); }
 .schema.anime .scene-en-cours path.flowchart-link:not(.actif),
 .schema.anime .scene-en-cours g.edgeLabel:not(.actif) { opacity: 0.16; }
 .schema.anime .scene-en-cours g.cluster:not(.actif) { opacity: 0.6; }
-.schema.anime g.node.actif :is(rect, polygon, circle, path, ellipse),
+.schema.anime g.node.actif :is(rect, polygon, circle, path, ellipse) { stroke-width: 2.5px !important; }
+.schema.anime g.node.actif:not(.ext, .regle, .moteur, .cible, .ko) :is(rect, polygon, circle, path, ellipse),
 .schema.anime g.cluster.actif rect { stroke: var(--pin) !important; stroke-width: 2.5px !important; fill: var(--pin-clair) !important; }
-.schema.anime g.node.alerte :is(rect, polygon, circle, path, ellipse) { stroke: var(--ambre) !important; fill: var(--ambre-clair) !important; }
+.schema.anime g.node.alerte :is(rect, polygon, circle, path, ellipse) { stroke: var(--rouge) !important; fill: var(--rouge-clair) !important; }
 .schema.anime path.flowchart-link.actif { stroke: var(--pin) !important; stroke-width: 2.5px !important; }
-.schema.anime path.flowchart-link.alerte { stroke: var(--ambre) !important; }
+.schema.anime path.flowchart-link.alerte { stroke: var(--rouge) !important; }
 .schema.anime .jeton { fill: var(--pin); stroke: var(--papier); stroke-width: 1.5px; }
-.schema.anime .jeton.alerte { fill: var(--ambre); }
+.schema.anime .jeton.alerte { fill: var(--rouge); }
 
 .scene-barre {
   position: sticky; bottom: 0; z-index: 4;

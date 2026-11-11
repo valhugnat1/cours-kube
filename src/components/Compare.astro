@@ -1,0 +1,7 @@
+---
+// Deux cartes <Cas> côte à côte : avant/après, ça marche/ça casse, A contre B.
+---
+<div class="compare"><slot /></div>
+<style>
+  .compare { display: grid; grid-template-columns: 1fr 1fr; gap: 0.5rem; margin: 1.25rem 0; align-items: stretch; }
+</style>

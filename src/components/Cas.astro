@@ -1,0 +1,16 @@
+---
+// Une carte de <Compare>. ton : "ok" (vert), "ko" (rouge) ou rien (neutre).
+interface Props { titre: string; ton?: 'ok' | 'ko' }
+const { titre, ton } = Astro.props;
+---
+<section class:list={['cas', ton]}><p class="cas-titre">{ton === 'ok' ? '✔ ' : ton === 'ko' ? '✘ ' : ''}{titre}</p><slot /></section>
+<style>
+  .cas { background: var(--surface); border: 1.5px solid var(--trait); border-radius: var(--rayon); padding: 0.6rem 0.65rem 0.1rem; font-size: 0.9rem; line-height: 1.45; min-width: 0; }
+  .cas-titre { font-weight: 650; margin: 0 0 0.35rem; line-height: 1.25; }
+  .cas.ok { background: var(--pin-clair); border-color: var(--pin); }
+  .cas.ok .cas-titre { color: var(--pin); }
+  .cas.ko { background: var(--rouge-clair); border-color: var(--rouge); }
+  .cas.ko .cas-titre { color: var(--rouge); }
+  .cas :global(ul) { padding-left: 1rem; margin-bottom: 0.6rem; }
+  .cas :global(p) { margin-bottom: 0.6rem; }
+</style>

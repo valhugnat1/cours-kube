@@ -32,7 +32,13 @@ quiz:
     explication: "Le LB et le NodePort ne font qu'acheminer. C'est le pod du controller qui déchiffre, lit les règles et choisit le Service. Derrière, HTTP en clair."
 ---
 
-Chaque maillon de la chaîne est un endroit où ça peut casser, et chacun a sa commande de vérification. Avant d'ouvrir la boîte à outils, mets la chaîne entière dans l'ordre.
+<Idee>
+Une requête qui vient de l'extérieur traverse **six maillons** avant d'atteindre ton pod. Chacun est un endroit où ça peut casser, et chacun se vérifie séparément. Dans l'autre sens, un pod qui sort passe souvent par un proxy imposé par le client.
+</Idee>
+
+<Analogie>
+Suivre un appel de bout en bout : l'annuaire public, le numéro de l'opérateur, la porte de l'immeuble, l'automate du menu, le numéro du service, puis l'agent. En sortie, tous les appels affichent le **numéro de l'entreprise**, et certains clients imposent de passer par un standardiste qui n'a le droit d'appeler qu'une liste de numéros.
+</Analogie>
 
 ## De l'extérieur vers un pod
 
@@ -43,34 +49,49 @@ flowchart TD
   %% scene: Le controller :: Le pod de l'ingress controller termine TLS, lit les Ingress et choisit le Service selon l'hôte et le chemin. :: NP>IC, IC
   %% scene: Le Service interne :: Le Service ClusterIP `api` et ses règles kube-proxy redirigent vers un endpoint. :: IC>SVC, SVC
   %% scene: Le pod :: Un pod `api` Ready reçoit la requête sur le port 8000. Six maillons, six endroits où ça peut casser. :: SVC>POD, POD
-  NAV["<b>Navigateur</b>"] --> DNS["<b>DNS public</b><br/>chat.client.example"]
-  DNS --> LB["<b>LoadBalancer</b><br/>cloud ou MetalLB"]
-  LB --> NP["<b>NodePort sur un nœud</b><br/>Service du controller"]
-  NP --> IC["<b>Pod ingress controller</b><br/>termine TLS, lit les Ingress"]
-  IC --> SVC["<b>Service ClusterIP api</b><br/>règles kube-proxy"]
-  SVC --> POD["<b>Pod api Ready</b><br/>port 8000"]
+  NAV["<b>Navigateur</b>"]:::ext --> DNS["<b>① DNS public</b><br/>chat.client.example"]:::ext
+  DNS --> LB["<b>② LoadBalancer</b><br/>cloud ou MetalLB"]:::ext
+  LB --> NP["<b>③ NodePort sur un nœud</b><br/>Service du controller"]:::regle
+  NP --> IC["<b>④ Pod ingress controller</b><br/>termine TLS, lit les Ingress"]:::moteur
+  IC --> SVC["<b>⑤ Service ClusterIP api</b><br/>règles kube-proxy"]:::regle
+  SVC --> POD["<b>⑥ Pod api Ready</b><br/>port 8000"]:::cible
 ```
 
-Deux points à retenir de ce trajet. Le LoadBalancer et le NodePort ne font qu'acheminer : la première décision par hôte et par chemin est prise dans le pod du controller. Et TLS s'arrête là : derrière, entre le controller et tes pods, c'est du HTTP en clair (étape 0).
+Deux points à retenir de ce trajet :
+
+- Le LoadBalancer et le NodePort ne font qu'**acheminer**. La première décision par hôte et par chemin est prise au maillon ④, dans le pod du controller.
+- **TLS s'arrête là.** Derrière, entre le controller et tes pods, c'est du HTTP en clair (étape 0).
 
 ## D'un pod vers l'extérieur
 
 En sortie, le pod utilise l'**IP du nœud** (SNAT), sauf configuration particulière. Un client exigeant impose un **proxy de sortie** obligatoire, avec une liste blanche de destinations : par variables `HTTP_PROXY`, `HTTPS_PROXY` et `NO_PROXY` dans les pods, ou par interception transparente.
-
-Deux conséquences immédiates :
-
-1. **`NO_PROXY` doit contenir les plages internes du cluster.** Sinon les appels entre services partent vers le proxy et échouent.
-2. **Les composants qui sortent à la demande de l'utilisateur** (crawler, connecteurs, exécution de code) doivent être bloqués vers les plages privées. C'est la protection contre le **SSRF**, détaillée à l'étape 12.
 
 ```mermaid
 flowchart TD
   %% scene: Appel externe :: Le crawler appelle un site externe : il passe par le proxy, qui vérifie la liste blanche. :: CR, CR>PX, PX, PX>EXT, EXT
   %% scene: Appel interne :: L'appel vers un autre Service doit rester dans le cluster. C'est le rôle de `NO_PROXY`. :: CR>INT, INT
   %% scene: Sans NO_PROXY :: Si les plages internes manquent dans `NO_PROXY`, l'appel interne part au proxy et échoue. :: !CR>PX, !PX
-  CR["<b>Pod crawler</b><br/>HTTPS_PROXY, NO_PROXY"] --> PX["<b>Proxy de sortie</b><br/>liste blanche"]
-  PX --> EXT["<b>Site externe</b>"]
-  CR -->|"NO_PROXY"| INT["<b>Service interne</b><br/>reste dans le cluster"]
+  CR["<b>Pod crawler</b><br/>HTTPS_PROXY, NO_PROXY"]:::ext --> PX["<b>Proxy de sortie</b><br/>liste blanche"]:::moteur
+  PX --> EXT["<b>Site externe</b>"]:::cible
+  CR -->|"NO_PROXY"| INT["<b>Service interne</b><br/>reste dans le cluster"]:::cible
 ```
+
+<Compare>
+<Cas ton="ok" titre="NO_PROXY complet">
+
+Les plages internes du cluster y sont. L'appel entre services reste dans le cluster.
+
+</Cas>
+<Cas ton="ko" titre="NO_PROXY incomplet">
+
+L'appel entre services part vers le proxy, et échoue.
+
+</Cas>
+</Compare>
+
+<Terrain>
+Les composants qui sortent **à la demande de l'utilisateur** (crawler, connecteurs, exécution de code) doivent être bloqués vers les plages privées. C'est la protection contre le **SSRF**, détaillée à l'étape 12.
+</Terrain>
 
 <Retenir>
 DNS public, LoadBalancer, NodePort, controller, Service, pod : six maillons, chacun vérifiable. En sortie, l'IP du nœud ; avec un proxy imposé, `NO_PROXY` doit couvrir l'interne, et les composants pilotés par l'utilisateur ne doivent pas joindre les plages privées.

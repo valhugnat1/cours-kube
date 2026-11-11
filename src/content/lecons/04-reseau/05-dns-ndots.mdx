@@ -43,20 +43,29 @@ quiz:
     explication: "Un nom terminé par un point est absolu et résolu tel quel. Ou bien `dnsConfig.options` avec `ndots: 2` sur les pods qui appellent beaucoup l'extérieur."
 ---
 
-Dans le cluster, on ne s'adresse pas par IP mais par nom. **CoreDNS**, qui tourne dans `kube-system`, répond pour la zone `cluster.local` et donne un nom à chaque Service.
+<Idee>
+Dans le cluster, on s'appelle par **nom**, pas par IP. **CoreDNS** donne à chaque Service un nom construit toujours pareil : le service, puis son namespace, puis `svc.cluster.local`.
+</Idee>
 
-## La forme complète
+<Analogie>
+L'**annuaire interne**. « Passe-moi l'api » suffit dans ta propre équipe (ton namespace). Depuis une autre équipe, il faut dire « l'api de platform ». Et l'intitulé complet marche de partout.
+</Analogie>
 
-```
-<service>.<namespace>.svc.cluster.local
-api.platform.svc.cluster.local
-```
+## Trois façons d'écrire le même nom
 
-Les pods d'un StatefulSet derrière un Service headless ont chacun leur nom : `db-0.db.platform.svc.cluster.local`.
+CoreDNS tourne dans `kube-system` et répond pour la zone `cluster.local`.
 
-## Les formes courtes, grâce au resolv.conf
+| Tu écris | Ça résout depuis |
+|---|---|
+| `api` | ✔ le **même** namespace seulement |
+| `api.platform` | ✔ n'importe quel namespace |
+| `api.platform.svc.cluster.local` | ✔ partout, sans ambiguïté |
 
-Kubernetes injecte dans chaque pod des domaines de recherche :
+La forme longue est celle à mettre dans une configuration. Les pods d'un StatefulSet derrière un Service headless ont chacun leur nom : `db-0.db.platform.svc.cluster.local`.
+
+## Pourquoi les formes courtes marchent
+
+Kubernetes injecte dans chaque pod un `resolv.conf` avec des domaines de recherche, essayés l'un après l'autre :
 
 ```
 search platform.svc.cluster.local svc.cluster.local cluster.local
@@ -64,23 +73,19 @@ nameserver 10.96.0.10
 options ndots:5
 ```
 
-- `api` : résolu si `api` est dans le **même** namespace ;
-- `api.platform` : depuis n'importe quel namespace ;
-- `api.platform.svc.cluster.local` : toujours. C'est la forme à mettre dans une configuration, sans ambiguïté.
-
 ## Le piège ndots:5
 
-Avec `ndots:5`, tout nom de **moins de 5 points** est d'abord essayé avec chaque domaine de recherche, avant d'être résolu tel quel. `api.mistral.ai` n'a que 2 points.
+Avec `ndots:5`, tout nom de **moins de 5 points** est d'abord essayé avec chaque domaine de recherche, avant d'être résolu tel quel. `api.mistral.ai` n'a que 2 points. C'est chercher un numéro extérieur dans l'annuaire de chaque service avant d'ouvrir l'annuaire public.
 
 ```mermaid
 flowchart TD
   %% scene: Un appel externe :: Le crawler demande `api.mistral.ai`. Deux points, moins de cinq : la recherche commence par les domaines du cluster. :: Q, Q>T1, T1
   %% scene: Échecs en série :: Chaque domaine de recherche donne un NXDOMAIN. Autant de requêtes perdues. :: !T1, !T1>T2, !T2, !T2>T3, !T3
   %% scene: Enfin le vrai nom :: Le nom est résolu tel quel en dernier. Coût : 3 à 4 requêtes inutiles par appel et des logs CoreDNS pleins de NXDOMAIN. :: T3>OK, OK
-  Q["<b>Le pod demande</b><br/>api.mistral.ai"] --> T1["<b>…platform.svc.cluster.local</b><br/>NXDOMAIN"]
-  T1 --> T2["<b>…svc.cluster.local</b><br/>NXDOMAIN"]
-  T2 --> T3["<b>…cluster.local</b><br/>NXDOMAIN"]
-  T3 --> OK["<b>api.mistral.ai</b><br/>résolu, enfin"]
+  Q["<b>Le pod demande</b><br/>api.mistral.ai"]:::ext --> T1["<b>① …platform.svc.cluster.local</b><br/>NXDOMAIN ✘"]:::ko
+  T1 --> T2["<b>② …svc.cluster.local</b><br/>NXDOMAIN ✘"]:::ko
+  T2 --> T3["<b>③ …cluster.local</b><br/>NXDOMAIN ✘"]:::ko
+  T3 --> OK["<b>④ api.mistral.ai</b><br/>résolu, enfin ✔"]:::cible
 ```
 
 Résultat : des latences, et des logs CoreDNS pleins de NXDOMAIN. Deux remèdes :
@@ -88,9 +93,9 @@ Résultat : des latences, et des logs CoreDNS pleins de NXDOMAIN. Deux remèdes 
 - un **point final** dans la config (`api.mistral.ai.`), qui rend le nom absolu ;
 - `dnsConfig.options` avec `ndots` à `"2"` sur les pods qui appellent beaucoup l'extérieur.
 
-## Diagnostiquer quand l'image est vide
-
+<Terrain>
 Une image `distroless` ou `scratch` n'a ni `nslookup` ni `sh`. Lance un pod outil à côté, `nicolaka/netshoot` : il a `nslookup`, `dig`, `curl`, `tcpdump`, `nc`, `traceroute`.
+</Terrain>
 
 <Retenir>
 `service.namespace.svc.cluster.local` résout toujours : c'est la forme des configs. Avec `ndots:5`, un nom externe court passe d'abord par tous les domaines du cluster : point final ou `ndots` plus bas.
