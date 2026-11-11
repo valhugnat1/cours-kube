@@ -5,6 +5,11 @@ import Commandes from '../../components/Commandes.astro';
 import Quiz from '../../components/Quiz.astro';
 import Retenir from '../../components/Retenir.astro';
 import Piege from '../../components/Piege.astro';
+import Idee from '../../components/Idee.astro';
+import Analogie from '../../components/Analogie.astro';
+import Terrain from '../../components/Terrain.astro';
+import Compare from '../../components/Compare.astro';
+import Cas from '../../components/Cas.astro';
 import { render } from 'astro:content';
 import { toutesLesLecons, urlLecon, questionsDe, estDuParcours, type Lecon } from '../../data/lecons';
 import { etapeParNumero } from '../../data/etapes';
@@ -44,7 +49,7 @@ const lab = memeEtape.find((l) => l.data.type === 'lab');
       : <p class="discret">Leçon {rang} sur {nbLecons}, {d.duree} min. {d.objectif}</p>}
 
   <article class="contenu">
-    <Content components={{ Retenir, Piege }} />
+    <Content components={{ Retenir, Piege, Idee, Analogie, Terrain, Compare, Cas }} />
   </article>
 
   <Commandes commandes={d.commandes} />

@@ -2,7 +2,7 @@
 // Un bloc qui contient des lignes « %% scene: » devient un schéma animé pas à pas (scenes.ts).
 
 import { animer } from './scenes';
-import { RE_SCENE } from './scenes-syntaxe.js';
+import { RE_SCENE, ROLES } from './scenes-syntaxe.js';
 
 export async function rendreSchemas() {
   const blocs = Array.from(document.querySelectorAll<HTMLElement>('code.language-mermaid'))
@@ -53,6 +53,13 @@ export async function rendreSchemas() {
     try {
       const { svg } = await mermaid.render(`schema-${i}`, source);
       div.innerHTML = svg;
+      const roles = Object.entries(ROLES).filter(([r]) => div.querySelector(`g.node.${r}`));
+      if (roles.length > 1) {
+        const legende = document.createElement('figcaption');
+        legende.className = 'legende';
+        legende.innerHTML = roles.map(([r, nom]) => `<span class="${r}">${nom}</span>`).join('');
+        div.append(legende);
+      }
       pre.replaceWith(div);
       if (source.split('\n').some((l) => RE_SCENE.test(l))) animer(div, source);
     } catch (e) {

@@ -36,7 +36,29 @@ quiz:
     explication: "`port` est celui du Service, que les clients appellent. `targetPort` est celui du conteneur, vers lequel le trafic est redirigé."
 ---
 
-Un pod meurt, son IP disparaît. Le **Service** donne un nom et une adresse stables à un groupe de pods. Mais il ne fait rien lui-même : sur chaque nœud, kube-proxy (ou Cilium) installe des règles qui redirigent l'IP du Service vers les IPs des pods ciblés.
+<Idee>
+Un **Service** est une adresse fixe posée devant un groupe de pods qui, eux, changent sans arrêt. Il ne vise que les pods qui portent le bon label **et** qui sont `Ready` : cette liste s'appelle les **endpoints**.
+</Idee>
+
+<Analogie>
+Le **numéro du support** d'une entreprise. Il ne change jamais, alors que les agents vont et viennent. L'appel ne sonne que chez les agents de la bonne équipe (le label) **et** connectés à leur poste (`Ready`). Les endpoints, c'est la liste des agents connectés à cet instant.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Le selector filtre :: Le Service retient les pods qui portent `app=api`. Le pod `app=apii` n'est même pas regardé : mauvaise équipe. :: S, S>P1, S>P2, !P3
+  %% scene: La readiness filtre encore :: Parmi eux, seuls les pods Ready entrent dans les endpoints. Le pod en échec de readiness en sort : agent déconnecté. :: P1>E, !P2, E
+  %% scene: Ce que voit le client :: Le client n'atteint que ce qui est dans les endpoints. Liste vide : échec de connexion. :: C>S, S>P1, P1>E, E
+  C["<b>Client</b><br/>appelle api:8080"]:::ext --> S["<b>Service api</b><br/>selector app=api"]:::regle
+  S --> P1["<b>Pod app=api</b><br/>Ready ✔"]:::cible
+  S --> P2["<b>Pod app=api</b><br/>readiness en échec ✘"]:::ko
+  S -.-x P3["<b>Pod app=apii</b><br/>faute de frappe ✘"]:::ko
+  P1 --> E["<b>Endpoints api</b><br/>10.244.0.12:8000"]:::cible
+  P2 -.-x E
+  P1 ~~~ P3
+```
+
+Le Service ne fait rien lui-même : sur chaque nœud, kube-proxy (ou Cilium) installe des règles qui redirigent l'IP du Service vers les IPs des pods ciblés.
 
 ## port et targetPort
 
@@ -57,33 +79,25 @@ spec:
 
 Les clients appellent `api:8080`, le trafic arrive au conteneur sur `8000`. `targetPort` peut aussi être le **nom** d'un port déclaré dans le pod.
 
-## Les endpoints : qui est vraiment derrière
+## Lire les endpoints
 
-Le Service ne cible que les pods **sélectionnés par label ET `Ready`**. La liste effective vit dans un objet séparé, l'Endpoints (ou ses EndpointSlices). `kubectl get endpoints api` est **la commande n° 1** du diagnostic réseau : elle dit si le Service a quelqu'un à qui parler.
+`kubectl get endpoints api` est **la commande n° 1** du diagnostic réseau : elle dit si le Service a quelqu'un à qui parler. La liste vit dans un objet séparé, l'Endpoints (ou ses EndpointSlices).
 
-```mermaid
-flowchart TD
-  %% scene: Le selector filtre :: Le Service retient les pods qui portent `app=api`. Le pod `app=apii` n'est même pas regardé. :: S, S>P1, S>P2, !P3
-  %% scene: La readiness filtre encore :: Parmi eux, seuls les pods Ready entrent dans les endpoints. Le pod en échec de readiness en sort. :: P1>E, !P2, E
-  %% scene: Ce que voit le client :: Le client n'atteint que ce qui est dans les endpoints. Liste vide : échec de connexion. :: C>S, S>P1, P1>E, E
-  C["<b>Client</b><br/>appelle api:8080"] --> S["<b>Service api</b><br/>selector app=api"]
-  S --> P1["<b>Pod app=api</b><br/>Ready"]
-  S --> P2["<b>Pod app=api</b><br/>readiness en échec"]
-  S -.-x P3["<b>Pod app=apii</b><br/>faute de frappe"]
-  P1 --> E["<b>Endpoints api</b><br/>10.244.0.12:8000"]
-  P2 -.-x E
-  P1 ~~~ P3
-```
+| Ce que tu vois | Ce que ça veut dire |
+|---|---|
+| `10.244.0.12:8000`, et ça répond | ✔ tout va bien |
+| `<none>` | ✘ personne derrière : trois causes |
+| Des IPs, mais la connexion échoue | ✘ regarde le `targetPort` |
 
-## Trois causes, pas une de plus
-
-Un Service avec `ENDPOINTS <none>` a exactement trois causes possibles :
+## `<none>` : trois causes, pas une de plus
 
 1. **Le selector ne correspond à aucun label** de pod : faute de frappe, chart mal rendu.
 2. **Aucun pod n'est `Ready`** : readiness en échec, comme à l'étape 3.
 3. **Le Service n'a pas de selector** : c'est un Service « manuel », dont on gère les endpoints à la main, cas des services externes.
 
-Et une chose que les endpoints ne vérifient pas : le **port**. Un `targetPort` faux laisse des endpoints bien remplis, mais la connexion échoue. Symptôme différent, cause différente.
+<Piege>
+Les endpoints ne vérifient pas le **port**. Un `targetPort` faux laisse des endpoints bien remplis, mais la connexion échoue. Symptôme différent, cause différente.
+</Piege>
 
 <Retenir>
 Un Service vise les pods sélectionnés et Ready ; `kubectl get endpoints` montre lesquels. `<none>` : selector, readiness, ou pas de selector. Endpoints présents mais connexion en échec : regarde le targetPort.

@@ -6,7 +6,9 @@ type: recap
 objectif: "Revoir toute l'étape sur un seul schéma : CNI, Service, endpoints, DNS, entrée, Ingress, NetworkPolicy et sortie."
 ---
 
-Toute l'étape suit **une requête**. Elle entre par un nom public, traverse un équilibreur, un controller, un Service, des règles kube-proxy, et arrive à un pod Ready. Chaque maillon peut casser, chacun a sa commande. Lance le pas à pas avec ▶, ou avance à ton rythme avec ›.
+Toute l'étape suit **une requête**. Elle entre par un nom public, traverse un équilibreur, un controller, un Service, des règles kube-proxy, et arrive à un pod Ready. Chaque maillon peut casser, chacun a sa commande.
+
+Regarde les couleurs : une **règle écrite** (violet) ne fait rien sans **quelqu'un qui l'applique** (ambre). Service et kube-proxy, Ingress et controller, NetworkPolicy et CNI : c'est trois fois la même histoire. Lance le pas à pas avec ▶, ou avance à ton rythme avec ›.
 
 ```mermaid
 flowchart TD
@@ -22,23 +24,23 @@ flowchart TD
   %% scene: Les codes du controller :: 404 aucune règle, 502 connexion ratée vers un endpoint, 503 aucun endpoint, 504 backend trop lent. :: IC, !IC>SVC
   %% scene: Le pare-feu entre pods :: Une NetworkPolicy ferme ce qu'elle n'autorise pas. Seulement si le CNI l'applique : sur kindnet, acceptée et ignorée. :: CNI>POL, POL, POL>POD
   %% scene: La sortie :: Le pod sort avec l'IP du nœud. Avec un proxy imposé, `NO_PROXY` doit couvrir les plages internes. :: POD>PX, PX
-  NAV["<b>Navigateur</b>"] --> DNSP["<b>DNS public</b><br/>chat.client.example"]
-  DNSP --> LB["<b>LoadBalancer</b><br/>cloud ou MetalLB"]
-  LB --> NPT["<b>NodePort</b><br/>Service du controller"]
-  LB ~~~ ING["<b>Ingress</b><br/>ingressClassName"]
-  NPT --> IC["<b>Pod ingress controller</b><br/>TLS, hôte, chemin"]
+  NAV["<b>Navigateur</b>"]:::ext --> DNSP["<b>DNS public</b><br/>chat.client.example"]:::ext
+  DNSP --> LB["<b>LoadBalancer</b><br/>cloud ou MetalLB"]:::ext
+  LB --> NPT["<b>NodePort</b><br/>Service du controller"]:::regle
+  LB ~~~ ING["<b>Ingress</b><br/>ingressClassName"]:::regle
+  NPT --> IC["<b>Pod ingress controller</b><br/>TLS, hôte, chemin"]:::moteur
   ING -.->|"lu par sa classe"| IC
-  IC --> SVC["<b>Service api</b><br/>ClusterIP"]
-  CL["<b>Pod client du cluster</b><br/>api.platform…"] -->|"résout"| CDNS["<b>CoreDNS</b><br/>kube-system"]
+  IC --> SVC["<b>Service api</b><br/>ClusterIP"]:::regle
+  CL["<b>Pod client du cluster</b><br/>api.platform…"]:::ext -->|"résout"| CDNS["<b>CoreDNS</b><br/>kube-system"]:::moteur
   IC ~~~ CL
   CL --> SVC
-  SVC -->|"selector + Ready"| EP["<b>Endpoints</b><br/>IP:port des pods"]
-  EP -->|"kube-proxy"| KP["<b>Règles iptables, IPVS</b><br/>par connexion"]
-  KP --> POD["<b>Pod api</b><br/>port 8000"]
-  CNI["<b>CNI</b><br/>IPs, policies ou non"] -.-> POD
-  CNI --> POL["<b>NetworkPolicy</b><br/>appliquée ou ignorée"]
+  SVC -->|"selector + Ready"| EP["<b>Endpoints</b><br/>IP:port des pods"]:::cible
+  EP -->|"kube-proxy"| KP["<b>Règles iptables, IPVS</b><br/>par connexion"]:::moteur
+  KP --> POD["<b>Pod api</b><br/>port 8000"]:::cible
+  CNI["<b>CNI</b><br/>IPs, policies ou non"]:::moteur -.-> POD
+  CNI --> POL["<b>NetworkPolicy</b><br/>appliquée ou ignorée"]:::regle
   POL -.-> POD
-  POD -->|"egress"| PX["<b>Proxy de sortie</b><br/>NO_PROXY"]
+  POD -->|"egress"| PX["<b>Proxy de sortie</b><br/>NO_PROXY"]:::moteur
 ```
 
 ## Ce que tu sais faire maintenant
@@ -53,6 +55,23 @@ flowchart TD
 - **Retracer la chaîne** d'entrée, et la sortie par un proxy. [Leçon 8](/l/04-reseau/08-chaine-complete/)
 - **Lire une NetworkPolicy** et prouver qu'elle s'applique. [Leçon 9](/l/04-reseau/09-networkpolicy/)
 - **Diagnostiquer dans l'ordre** et lire 404, 502, 503, 504. [Leçon 10](/l/04-reseau/10-diagnostic-codes/)
+
+## Les mots de l'étape
+
+| Mot | En une phrase | Au téléphone |
+|---|---|---|
+| CNI | Le plugin qui donne une IP à chaque pod et les relie. | L'installateur télécom |
+| Service | Une adresse fixe devant des pods qui changent. | Le numéro du support |
+| Endpoints | Les pods sélectionnés et Ready, à cet instant. | Les agents connectés |
+| ClusterIP | Un Service joignable de l'intérieur seulement. | Un numéro interne |
+| LoadBalancer | Un Service avec une IP externe fournie par le cloud. | Un numéro public de l'opérateur |
+| kube-proxy | Les règles qui envoient l'IP du Service vers un pod. | L'aiguillage au décroché |
+| CoreDNS | Ce qui transforme un nom de Service en IP. | L'annuaire interne |
+| Ingress | Des règles « hôte et chemin vers Service ». | Le script du menu vocal |
+| Ingress controller | Le proxy qui lit les Ingress et route. | L'automate qui lit le script |
+| API gateway | Le composant qui vérifie identité et quotas. | L'agent qui demande ton numéro client |
+| NetworkPolicy | La liste de ce qui reste autorisé entre pods. | Les restrictions d'appel |
+| Proxy de sortie | Le passage obligé des appels vers l'extérieur. | Le standardiste et sa liste |
 
 ## Où tu en es dans la partie A
 

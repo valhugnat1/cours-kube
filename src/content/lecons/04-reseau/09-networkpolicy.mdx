@@ -39,7 +39,13 @@ quiz:
     explication: "Les policies sont additives : on prend l'union des autorisations. Il n'existe pas de règle « deny » à opposer."
 ---
 
-Par défaut, **tout pod peut parler à tout pod** : c'est la règle 2 du modèle. Une **NetworkPolicy** restreint ça, pour les pods qu'elle sélectionne. Encore faut-il que le CNI l'applique.
+<Idee>
+Par défaut, tout pod peut parler à tout pod. Une **NetworkPolicy** est une liste de ce qui reste **autorisé** pour les pods qu'elle sélectionne : tout le reste est refusé. Et elle n'existe vraiment que si le CNI sait l'appliquer.
+</Idee>
+
+<Analogie>
+Des **restrictions d'appel** : « le poste de la base n'accepte que les appels de l'api ». Dès qu'un poste a une restriction, tout ce qui n'est pas sur sa liste est refusé. Mais si l'installateur a posé un matériel qui ne sait pas filtrer, la consigne reste sur le papier.
+</Analogie>
 
 ```yaml
 kind: NetworkPolicy             # db-only-from-api, namespace platform
@@ -60,6 +66,16 @@ spec:
       ports: [{ port: 53, protocol: UDP }]
 ```
 
+Ce que cette policy donne, appel par appel :
+
+| Appel | Résultat |
+|---|---|
+| `api` vers `db` sur 5432 | ✔ autorisé |
+| `ui` vers `db` sur 5432 | ✘ refusé, `ui` n'est pas listé |
+| `api` vers `db` sur un autre port | ✘ refusé |
+| `db` vers CoreDNS sur 53 | ✔ autorisé |
+| `db` vers tout le reste | ✘ refusé |
+
 ## Les règles de lecture
 
 - Dès qu'**une** policy sélectionne un pod pour un type (Ingress ou Egress), **tout ce qui n'est pas autorisé est refusé** pour ce type. Un pod sélectionné par aucune policy reste totalement ouvert.
@@ -72,19 +88,21 @@ flowchart TD
   %% scene: On ouvre au cas par cas :: Une policy autorise `api` vers `db` sur 5432. Les policies s'additionnent. :: A, A>P, P
   %% scene: Le DNS oublié :: Sans egress vers CoreDNS sur le port 53, plus rien ne résout. Tout semble cassé. :: !P>DNS, !DNS
   %% scene: Le CNI décide :: Tout cela n'existe que si le CNI applique les policies. Sur kindnet : acceptées, ignorées, sans erreur. :: CNI, CNI>P
-  DD["<b>Default deny</b><br/>podSelector vide, aucune règle"] --> P["<b>Pods du namespace</b>"]
-  A["<b>Policy allow</b><br/>api vers db:5432"] --> P
-  P -->|"egress port 53"| DNS["<b>CoreDNS</b><br/>kube-system"]
-  P -.-|"règles tenues par"| CNI["<b>CNI</b><br/>applique, ou ignore"]
+  DD["<b>① Default deny</b><br/>podSelector vide, aucune règle"]:::regle --> P["<b>Pods du namespace</b>"]:::cible
+  A["<b>② Policy allow</b><br/>api vers db:5432"]:::regle --> P
+  P -->|"③ egress port 53"| DNS["<b>CoreDNS</b><br/>kube-system"]:::cible
+  P -.-|"règles tenues par"| CNI["<b>CNI</b><br/>applique, ou ignore"]:::moteur
 ```
 
 ## Default deny, sans oublier le DNS
 
 Le pattern d'un namespace fermé : une policy avec `podSelector` vide et `policyTypes` Ingress et Egress, sans aucune règle. Ensuite on ouvre au cas par cas. **N'oublie jamais le DNS en egress.**
 
-## Présente et sans effet
+<Piege>
+Une NetworkPolicy sans CNI qui l'applique est **acceptée par l'API et ignorée** : aucune erreur, aucune alerte. Sur kind avec kindnet, c'est exactement ce qui se passe.
+</Piege>
 
-Une NetworkPolicy sans CNI qui l'applique est **acceptée par l'API et ignorée** : aucune erreur, aucune alerte. Sur kind avec kindnet, c'est exactement ce qui se passe. Les policies sont L3/L4 (IP, port) ; pour filtrer par chemin ou méthode HTTP, il faut Cilium ou un mesh.
+Les policies sont L3/L4 (IP, port). Pour filtrer par chemin ou méthode HTTP, il faut Cilium ou un mesh.
 
 <Retenir>
 Une policy ferme tout ce qu'elle n'autorise pas, pour les pods qu'elle sélectionne ; les policies s'additionnent. Default deny, puis DNS, puis le reste. Et rien de tout ça n'existe si le CNI du client ne les applique pas.

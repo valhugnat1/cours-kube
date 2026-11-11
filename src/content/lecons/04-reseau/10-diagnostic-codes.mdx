@@ -45,9 +45,31 @@ quiz:
     explication: "504 : le backend n'a pas répondu à temps, du point de vue du controller. Pour l'inférence longue, on règle le timeout par annotation."
 ---
 
-« C'est injoignable » ne dit pas où. La méthode : partir du Service, descendre jusqu'au pod, puis remonter vers l'entrée. Chaque réponse élimine une moitié de la chaîne.
+<Idee>
+« C'est injoignable » ne dit pas **où**. La méthode : tester depuis l'intérieur du cluster pour couper la chaîne en deux, puis vérifier maillon par maillon. Et le code HTTP renvoyé par le controller dit déjà quel maillon a lâché.
+</Idee>
+
+<Analogie>
+Quatre façons de rater un appel. **404** : « ce choix n'existe pas au menu ». **503** : « aucun agent n'est connecté ». **502** : on te transfère, mais le poste ne décroche pas. **504** : l'agent a décroché, mais te laisse en attente trop longtemps et l'automate raccroche.
+</Analogie>
+
+## Couper la chaîne en deux
+
+```mermaid
+flowchart TD
+  %% scene: Depuis l'intérieur :: Un `curl` depuis netshoot vers le Service coupe la chaîne en deux. :: T
+  %% scene: Ça marche :: Service et pod répondent : cherche en amont, ingress, LoadBalancer ou DNS externe. :: T>UP, UP
+  %% scene: Ça échoue :: Le problème est dans le cluster : endpoints, port, ou NetworkPolicy. :: !T>IN, !IN
+  %% scene: L'appli seule :: Le `port-forward` court-circuite le réseau du cluster. S'il répond, l'application est saine. :: IN>PF, PF
+  T{{"<b>curl depuis netshoot</b><br/>vers api.platform:8080"}}:::moteur
+  T -->|"✔ répond"| UP["<b>Cherche en amont</b><br/>ingress, LB, DNS externe"]:::ext
+  T -->|"✘ échoue"| IN["<b>Cherche dans le cluster</b><br/>endpoints, port, policy"]:::ko
+  IN --> PF["<b>port-forward sur le pod</b><br/>l'appli seule répond-elle ?"]:::moteur
+```
 
 ## L'ordre des vérifications
+
+On part du Service, on descend jusqu'au pod, puis on remonte vers l'entrée.
 
 1. **Le Service a-t-il des cibles ?** `kubectl get endpoints`. `<none>` : selector ou readiness.
 2. **Le selector correspond-il ?** `kubectl get pods -l app=api --show-labels`. Rien : faute dans le selector ou dans le chart.
@@ -57,28 +79,28 @@ quiz:
 6. **Côté Ingress.** `ADDRESS` vide : aucun controller ne l'a pris ; vérifie `kubectl get ingressclass`, puis le log du controller.
 7. **Une NetworkPolicy ?** `kubectl get networkpolicy -A`, puis `describe`.
 
+## Les codes du controller, une carte
+
 ```mermaid
 flowchart TD
-  %% scene: Depuis l'intérieur :: Un `curl` depuis netshoot vers le Service coupe la chaîne en deux. :: T
-  %% scene: Ça marche :: Service et pod répondent : cherche en amont, ingress, LoadBalancer ou DNS externe. :: T>UP, UP
-  %% scene: Ça échoue :: Le problème est dans le cluster : endpoints, port, ou NetworkPolicy. :: !T>IN, !IN
-  %% scene: L'appli seule :: Le `port-forward` court-circuite le réseau du cluster. S'il répond, l'application est saine. :: IN>PF, PF
-  T{{"<b>curl depuis netshoot</b><br/>vers api.platform:8080"}}
-  T -->|"répond"| UP["<b>En amont</b><br/>ingress, LB, DNS externe"]
-  T -->|"échoue"| IN["<b>Dans le cluster</b><br/>endpoints, port, policy"]
-  IN --> PF["<b>port-forward sur le pod</b><br/>l'appli seule répond-elle ?"]
+  R["<b>Requête au controller</b>"]:::ext -->|"aucune règle"| C404["<b>404</b><br/>hôte ou chemin inconnu"]:::ko
+  R -->|"règle trouvée"| S["<b>Service</b>"]:::regle
+  S -->|"aucun endpoint"| C503["<b>503</b><br/>readiness, selector"]:::ko
+  S -->|"endpoint choisi"| P["<b>Pod</b>"]:::cible
+  P -->|"connexion ratée"| C502["<b>502</b><br/>port, targetPort"]:::ko
+  P -->|"réponse trop lente"| C504["<b>504</b><br/>timeout du controller"]:::ko
 ```
-
-## Les codes du controller, une carte
 
 | Code | Ce que ça veut dire | Où regarder |
 |---|---|---|
 | **404** | Aucune règle ne matche l'hôte ou le chemin | `host` mal écrit, classe absente |
 | **502** | Endpoint joint, connexion échouée | Pod qui n'écoute pas, mauvais targetPort |
 | **503** | Aucun endpoint | Readiness, selector |
-| **504** | Le backend n'a pas répondu à temps | Timeout du controller, à régler par annotation |
+| **504** | Le backend n'a pas répondu à temps | Timeout du controller |
 
+<Terrain>
 Le 504 concerne directement la plateforme : pour les requêtes d'inférence longues, c'est ce timeout du controller qu'on ajuste par annotation.
+</Terrain>
 
 <Retenir>
 Endpoints, labels, port d'écoute, curl interne, port-forward, Ingress, policies : dans cet ordre. Au controller : 404 pas de règle, 502 connexion ratée, 503 pas d'endpoint, 504 trop lent.

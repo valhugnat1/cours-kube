@@ -32,17 +32,26 @@ quiz:
     explication: "ExternalName crée un CNAME : `postgres` dans le cluster résout vers le nom de la base managée. Les autres types exposent des pods, ils ne pointent pas vers l'extérieur."
 ---
 
-Le champ `type` d'un Service décide **d'où** on peut le joindre. Les trois premiers types s'emboîtent : chacun ajoute une couche au précédent.
+<Idee>
+Le champ `type` d'un Service décide **d'où** on peut le joindre : seulement de l'intérieur du cluster, ou aussi de l'extérieur. Les trois types principaux s'emboîtent, chacun ajoute une couche au précédent.
+</Idee>
+
+<Analogie>
+**ClusterIP**, c'est un numéro interne à quatre chiffres : seuls les postes de l'entreprise l'atteignent. **NodePort** ouvre en plus une ligne à chaque porte de l'immeuble. **LoadBalancer** ajoute un vrai numéro public, que seul un **opérateur** peut fournir. Sans opérateur, la demande de numéro attend pour toujours.
+</Analogie>
 
 ```mermaid
 flowchart TD
-  %% scene: ClusterIP :: Le défaut : une IP virtuelle joignable seulement depuis l'intérieur du cluster. :: CIP
-  %% scene: NodePort :: Ajoute un port de 30000 à 32767 ouvert sur chaque nœud, qui mène à la ClusterIP. :: NP, NP>CIP
-  %% scene: LoadBalancer :: Ajoute un équilibreur externe, demandé au cloud-controller-manager, qui vise les NodePorts. :: LB, LB>NP, NP>CIP
-  %% scene: Personne pour fournir :: On-prem sans MetalLB ou équivalent, la demande reste sans réponse : `EXTERNAL-IP` en `pending` pour toujours. :: !CCM, !LB>CCM
-  LB["<b>LoadBalancer</b><br/>IP fournie par le cloud"] --> NP["<b>NodePort</b><br/>port 30000-32767, chaque nœud"]
-  NP --> CIP["<b>ClusterIP</b><br/>IP virtuelle interne"]
-  LB -.->|"demande l'équilibreur"| CCM["<b>cloud-controller-manager</b><br/>ou MetalLB on-prem"]
+  %% scene: ClusterIP :: Le défaut : une IP virtuelle joignable seulement depuis l'intérieur du cluster. Le numéro interne. :: INT, INT>CIP, CIP, CIP>POD, POD
+  %% scene: NodePort :: Ajoute un port de 30000 à 32767 ouvert sur chaque nœud, qui mène à la ClusterIP. :: NP, NP>CIP, CIP
+  %% scene: LoadBalancer :: Ajoute un équilibreur externe, demandé au cloud-controller-manager, qui vise les NodePorts. :: EXT, EXT>LB, LB, LB>NP, NP>CIP, CCM, CCM>LB
+  %% scene: Personne pour fournir :: On-prem sans MetalLB ou équivalent, la demande reste sans réponse : `EXTERNAL-IP` en `pending` pour toujours. :: !CCM, !LB>CCM, !LB
+  EXT["<b>Internet</b>"]:::ext --> LB["<b>LoadBalancer</b><br/>IP fournie par le cloud"]:::regle
+  LB --> NP["<b>NodePort</b><br/>30000-32767, chaque nœud"]:::regle
+  NP --> CIP["<b>ClusterIP</b><br/>IP virtuelle interne"]:::regle
+  INT["<b>Pod du cluster</b>"]:::ext --> CIP
+  CIP --> POD["<b>Pods ciblés</b>"]:::cible
+  CCM["<b>cloud-controller-manager</b><br/>ou MetalLB on-prem"]:::moteur -.->|"fournit l'IP externe"| LB
 ```
 
 ## Les trois qui s'emboîtent
@@ -53,20 +62,22 @@ flowchart TD
 
 ## Les deux à part
 
-| Type | Ce qu'il fait | Usage |
+- **Headless** (`clusterIP: None`) : pas d'IP virtuelle, le DNS renvoie les IPs des pods. Pour les StatefulSets et les clients qui équilibrent eux-mêmes (Kafka, gRPC). C'est l'annuaire qui donne les lignes directes.
+- **ExternalName** : un alias DNS (CNAME) vers un nom externe. Pour pointer `postgres` vers une base managée sans toucher la config. C'est un renvoi d'appel.
+
+## Qui peut joindre quoi
+
+| Type | Depuis le cluster | Depuis l'extérieur |
 |---|---|---|
-| **Headless** (`clusterIP: None`) | Pas d'IP virtuelle : le DNS renvoie les IPs des pods | StatefulSets, clients qui équilibrent eux-mêmes (Kafka, gRPC) |
-| **ExternalName** | Un alias DNS (CNAME) vers un nom externe | Pointer `postgres` vers une base managée sans toucher la config |
+| ClusterIP | ✔ | ✘ |
+| NodePort | ✔ | ✔ IP d'un nœud + port |
+| LoadBalancer | ✔ | ✔ IP dédiée |
+| Headless | ✔ IPs des pods | ✘ |
+| ExternalName | ✔ alias | ✘ |
 
-Les deux ne sont joignables que de l'intérieur du cluster.
-
-## Le classique on-prem
-
-Le chart demande `type: LoadBalancer`, le cluster n'a personne pour le fournir. `EXTERNAL-IP` reste à `<pending>`, sans autre erreur. Trois sorties :
-
-1. installer **MetalLB** ou un équivalent ;
-2. passer en **NodePort** et laisser le client placer son propre équilibreur devant ;
-3. prévoir une **valeur de chart** qui bascule le type selon l'environnement.
+<Terrain>
+Le classique on-prem : le chart demande `type: LoadBalancer`, personne ne fournit l'IP, `EXTERNAL-IP` reste à `<pending>` sans autre erreur. Trois sorties : installer **MetalLB** ou un équivalent ; passer en **NodePort** et laisser le client placer son équilibreur devant ; prévoir une **valeur de chart** qui bascule le type selon l'environnement.
+</Terrain>
 
 <Piege>
 Attendre qu'un `<pending>` se résolve sur un cluster on-prem. Il ne bougera jamais : vérifie d'abord qu'il existe quelqu'un pour fournir l'IP.

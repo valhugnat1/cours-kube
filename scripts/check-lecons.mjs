@@ -16,7 +16,7 @@ globalThis.window = dom.window;
 globalThis.document = dom.window.document;
 const { default: mermaid } = await import('mermaid');
 mermaid.initialize({ startOnLoad: false });
-const { lireScenes } = await import('../src/scripts/scenes-syntaxe.js');
+const { lireScenes, ROLES } = await import('../src/scripts/scenes-syntaxe.js');
 const aValider = []; // [chemin, source]
 
 const RACINE = 'src/content/lecons';
@@ -27,8 +27,11 @@ const DOSSIERS = Object.fromEntries(
 
 const LIMITES = { motsMin: 180, motsMax: 550, schemasMin: 1, codeLignesMax: 16, blocsCodeMax: 2, noeudsMax: 10 };
 // Le récap de fin d'étape : un grand schéma animé, peu de prose, pas de quiz.
-const RECAP = { motsMin: 120, motsMax: 700, noeudsMax: 24, scenesMin: 5, scenesMax: 14 };
+const RECAP = { motsMin: 120, motsMax: 900, noeudsMax: 24, scenesMin: 5, scenesMax: 14 };
 const SCENES = { min: 3, max: 14, texteMax: 260 };
+// Méthode « idée, analogie, rôles colorés » : exigée à partir de cette étape (les étapes d'avant ont été écrites sans).
+const METHODE_DEPUIS = 4;
+const IDEE_MOTS_MAX = 50;
 
 const erreurs = [];
 const avertissements = [];
@@ -78,7 +81,10 @@ for (const dossier of cibles) {
       for (const x of src.matchAll(/-->\|?[^|]*\|?\s*([A-Za-z0-9_]+)\s*[\[\(\{]/g)) noeuds.add(x[1]);
       if (noeuds.size > noeudsMax) avert(chemin, `schéma de ${noeuds.size} nœuds : au-delà de ${noeudsMax}, découpe-le`);
       if (/classDef|style\s+\w+\s+fill/.test(src)) avert(chemin, 'couleurs en dur dans un schéma : le thème du site gère clair/sombre');
+      for (const r of src.matchAll(/:::\s*([\w-]+)/g)) if (!(r[1] in ROLES)) err(chemin, `rôle « :::${r[1]} » inconnu dans un schéma (rôles : ${Object.keys(ROLES).join(', ')})`);
     }
+    const methode = data.etape >= METHODE_DEPUIS;
+    const sansRole = schemas.filter((s) => !/:::/.test(s[2])).length;
     const animes = schemas.filter((s) => lireScenes(s[2]).length);
 
     if (type === 'recap') {
@@ -91,6 +97,8 @@ for (const dossier of cibles) {
       if (n && (n < RECAP.scenesMin || n > RECAP.scenesMax)) avert(chemin, `grand schéma de ${n} scènes (visé ${RECAP.scenesMin}-${RECAP.scenesMax})`);
       if ((corps.match(/<Retenir>/g) ?? []).length !== 1) err(chemin, 'un récap a un seul encadré <Retenir>');
       if (!/^\d{2}-recap(-[a-z0-9]+)*\.mdx$/.test(f)) err(chemin, 'nom attendu : NN-recap-<slug>.mdx');
+      if (methode && !/:::/.test(animes[0]?.[2] ?? '')) avert(chemin, 'grand schéma sans rôles colorés (:::ext, :::regle, :::moteur, :::cible, :::ko)');
+      if (methode && !/^##\s+Les mots de l'étape/m.test(corps)) avert(chemin, 'glossaire manquant : section « ## Les mots de l\'étape » (mot, une phrase, analogie)');
       continue;
     }
 
@@ -112,6 +120,20 @@ for (const dossier of cibles) {
       const n = c[2].trimEnd().split('\n').length;
       if (n > LIMITES.codeLignesMax) err(chemin, `bloc de code de ${n} lignes (max ${LIMITES.codeLignesMax})`);
       if (c[1] === 'bash' || c[1] === 'sh') avert(chemin, 'bloc bash dans une leçon : préfère le champ « commandes » (copiable, agrégé dans la page Commandes)');
+    }
+    if (methode) {
+      const idees = [...corps.matchAll(/<Idee>([\s\S]*?)<\/Idee>/g)];
+      if (idees.length !== 1) err(chemin, `${idees.length} encadré(s) <Idee> : il en faut un, en ouverture de la leçon`);
+      else {
+        if (corps.trimStart().indexOf('<Idee>') !== 0) err(chemin, '<Idee> doit ouvrir la leçon, avant tout autre texte');
+        const n = motsDe(idees[0][1]);
+        if (n > IDEE_MOTS_MAX) avert(chemin, `<Idee> de ${n} mots : l'idée tient en une ou deux phrases (max ${IDEE_MOTS_MAX})`);
+      }
+      if (!/<Analogie>/.test(corps)) avert(chemin, 'pas d\'<Analogie> : une image du quotidien, dans l\'univers choisi pour l\'étape');
+      if ((corps.match(/<Analogie>/g) ?? []).length > 1) avert(chemin, 'plusieurs <Analogie> : une seule image par leçon');
+      if (sansRole) avert(chemin, `${sansRole} schéma(s) sans rôles colorés (:::ext, :::regle, :::moteur, :::cible, :::ko)`);
+      if ((corps.match(/<Compare>/g) ?? []).length !== (corps.match(/<\/Compare>/g) ?? []).length) err(chemin, '<Compare> mal fermé');
+      for (const c of corps.matchAll(/<Compare>([\s\S]*?)<\/Compare>/g)) if ((c[1].match(/<Cas[\s>]/g) ?? []).length !== 2) err(chemin, '<Compare> contient exactement deux <Cas>');
     }
     if (!/<Retenir>/.test(corps)) err(chemin, 'encadré <Retenir> manquant');
     if ((corps.match(/<Retenir>/g) ?? []).length > 1) err(chemin, 'un seul <Retenir> par leçon');
