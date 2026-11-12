@@ -1,0 +1,196 @@
+---
+titre: "Lab : opérateur, Keeper et deux réplicas sur kind"
+etape: 25
+ordre: 90
+type: lab
+duree: 15
+objectif: "Monter un ClickHouse répliqué avec l'opérateur Altinity, voir la réplication, perdre un pod, changer de version et garder les disques."
+---
+
+Sur ton PC, cluster kind `lab` de l'étape 0, avec un accès à Internet pour tirer les images. Étapes 5 et 9 faites. Compte une heure. Les noms d'objets donnés ici sont ceux que l'opérateur documente : si ta version en produit d'autres, note l'écart, c'est exactement le réflexe à avoir chez un client.
+
+## 1. Installe l'opérateur
+
+```bash
+kubectl config current-context    # doit être kind-lab
+kubectl get crd | grep clickhouse # rien : pas d'opérateur déjà là
+kubectl apply -f https://raw.githubusercontent.com/Altinity/clickhouse-operator/master/deploy/operator/clickhouse-operator-install-bundle.yaml
+kubectl -n kube-system rollout status deploy/clickhouse-operator
+kubectl get crd | grep clickhouse # 4 CRDs
+kubectl -n kube-system get deploy clickhouse-operator -o jsonpath='{.spec.template.spec.containers[*].image}'
+```
+
+La dernière commande affiche deux images : l'opérateur et son exporteur de métriques. Avec le serveur et Keeper, ce sont les quatre images à pousser chez un client air-gapped.
+
+## 2. Keeper
+
+```bash
+kubectl create namespace lab25 && kubens lab25
+```
+
+Écris `keeper.yaml` :
+
+```yaml
+apiVersion: clickhouse-keeper.altinity.com/v1
+kind: ClickHouseKeeperInstallation
+metadata: { name: lab }
+spec:
+  configuration:
+    clusters:
+      - name: main
+        layout: { replicasCount: 3 }
+  defaults:
+    templates: { podTemplate: keeper, dataVolumeClaimTemplate: data }
+  templates:
+    podTemplates:
+      - name: keeper
+        spec:
+          containers:
+            - name: clickhouse-keeper
+              image: clickhouse/clickhouse-keeper:25.8
+    volumeClaimTemplates:
+      - name: data
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources: { requests: { storage: 1Gi } }
+```
+
+```bash
+kubectl apply -f keeper.yaml
+kubectl get chk -w                # jusqu'à Completed, puis Ctrl-C
+kubectl get pods,svc,pvc          # 3 pods chk-lab-…, note le nom du Service keeper-lab et son port
+```
+
+## 3. ClickHouse
+
+Écris `chi.yaml` :
+
+```yaml
+apiVersion: clickhouse.altinity.com/v1
+kind: ClickHouseInstallation
+metadata: { name: lab }
+spec:
+  configuration:
+    zookeeper:
+      keeper: { name: lab }
+    clusters:
+      - name: main
+        layout: { shardsCount: 1, replicasCount: 2 }
+  defaults:
+    templates: { podTemplate: ch, dataVolumeClaimTemplate: data }
+  templates:
+    podTemplates:
+      - name: ch
+        spec:
+          containers:
+            - name: clickhouse
+              image: clickhouse/clickhouse-server:25.3
+    volumeClaimTemplates:
+      - name: data
+        reclaimPolicy: Retain
+        spec:
+          accessModes: [ReadWriteOnce]
+          resources: { requests: { storage: 1Gi } }
+```
+
+```bash
+kubectl apply -f chi.yaml
+kubectl get chi -w                # InProgress puis Completed
+kubectl get sts,pods,svc,cm,pvc
+```
+
+Compare avec la leçon 4 : deux StatefulSets d'un pod (`chi-lab-main-0-0` et `chi-lab-main-0-1`), un Service par hôte, le Service `clickhouse-lab`, les ConfigMaps `chi-lab-…`, deux PVC.
+
+Si l'opérateur refuse `zookeeper.keeper` (version antérieure à 0.27), remplace ce bloc par `nodes: [{ host: keeper-lab, port: 2181 }]`, avec le nom et le port lus à l'étape 2.
+
+## 4. Le Service d'entrée
+
+```bash
+kubectl get svc clickhouse-lab    # TYPE LoadBalancer, EXTERNAL-IP <pending>
+```
+
+C'est le `pending` de l'étape 4 : kind n'a personne pour fournir une IP. Sur GKE, tu aurais une IP externe vers ta base. Retiens qu'il faut un `serviceTemplate` en `ClusterIP` chez un client.
+
+## 5. Répliquée ou pas
+
+```bash
+CH0="kubectl exec chi-lab-main-0-0-0 -- clickhouse-client -q"
+CH1="kubectl exec chi-lab-main-0-1-0 -- clickhouse-client -q"
+$CH0 "CREATE DATABASE lab ON CLUSTER 'main'"
+$CH0 "CREATE TABLE lab.rep  ON CLUSTER 'main' (ts DateTime, n UInt32) ENGINE = ReplicatedMergeTree ORDER BY ts"
+$CH0 "CREATE TABLE lab.solo ON CLUSTER 'main' (ts DateTime, n UInt32) ENGINE = MergeTree ORDER BY ts"
+$CH0 "INSERT INTO lab.rep  SELECT now(), number FROM numbers(1000)"
+$CH0 "INSERT INTO lab.solo SELECT now(), number FROM numbers(1000)"
+$CH1 "SELECT count() FROM lab.rep"     # 1000
+$CH1 "SELECT count() FROM lab.solo"    # 0
+$CH1 "SELECT table, is_readonly, absolute_delay, queue_size FROM system.replicas"
+```
+
+Les deux tables existent sur les deux hôtes grâce à `ON CLUSTER`. Seule la table `ReplicatedMergeTree` a ses données sur le second réplica. `clickhouse-client` passe ici avec l'utilisateur `default` parce que tu es dans un pod ClickHouse.
+
+## 6. Parts et fusions
+
+```bash
+for i in $(seq 1 10); do $CH0 "INSERT INTO lab.rep VALUES (now(), $i)"; done
+$CH0 "SELECT count() FROM system.parts WHERE active AND database = 'lab' AND table = 'rep'"
+$CH0 "OPTIMIZE TABLE lab.rep FINAL"
+$CH0 "SELECT count() FROM system.parts WHERE active AND database = 'lab' AND table = 'rep'"
+```
+
+Dix inserts d'une ligne ont fait une dizaine de parts (moins si une fusion est déjà passée). Après `OPTIMIZE … FINAL`, il n'en reste qu'une. Imagine 500 inserts par seconde.
+
+## 7. Perds un pod ClickHouse
+
+```bash
+kubectl delete pod chi-lab-main-0-0-0
+kubectl get pods -w               # il revient, même nom
+$CH0 "SELECT count() FROM lab.rep"     # 1010 : même disque
+```
+
+## 8. Perds un Keeper sur trois
+
+```bash
+kubectl get pods | grep chk       # repère un des trois pods Keeper
+kubectl delete pod <un-pod-chk>
+$CH0 "INSERT INTO lab.rep VALUES (now(), 42)"   # passe : il reste 2 Keeper sur 3
+$CH1 "SELECT count() FROM lab.rep"              # 1011
+```
+
+La majorité tient avec deux instances sur trois. Avec une seule instance Keeper au départ, cet insert aurait échoué avec `Table is in readonly mode`.
+
+## 9. Change de version
+
+Dans `chi.yaml`, passe l'image à `clickhouse/clickhouse-server:25.8`, puis :
+
+```bash
+kubectl apply -f chi.yaml
+kubectl get pods -w               # un hôte redémarre, puis l'autre
+kubectl get chi                   # Completed
+$CH0 "SELECT hostName(), version() FROM clusterAllReplicas('main', system.one)"
+```
+
+Pendant le redémarrage du réplica 0, lance un `SELECT` sur le réplica 1 dans un autre terminal : il répond.
+
+## 10. Supprime le plan, garde les disques
+
+```bash
+kubectl delete chi lab
+kubectl get pods,sts              # plus de ClickHouse
+kubectl get pvc                   # les deux PVC data-… sont toujours là : Retain
+kubectl apply -f chi.yaml
+kubectl get chi -w
+$CH0 "SELECT count() FROM lab.rep"     # 1011
+```
+
+Sans `reclaimPolicy: Retain`, les PVC seraient partis avec le `chi`. C'est l'inverse du StatefulSet de l'étape 5.
+
+## 11. Nettoie
+
+```bash
+kubectl delete chi lab ; kubectl delete chk lab
+kubectl delete namespace lab25
+kubectl get pv                    # plus rien de lab25 ne doit rester
+kubectl delete -f https://raw.githubusercontent.com/Altinity/clickhouse-operator/master/deploy/operator/clickhouse-operator-install-bundle.yaml
+```
+
+La dernière commande retire l'opérateur **et ses CRDs**. Sur un cluster client, supprimer ces CRDs supprimerait toutes les installations ClickHouse : jamais sans l'accord de leur propriétaire.

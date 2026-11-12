@@ -1,0 +1,96 @@
+---
+titre: "Shards, réplicas et Keeper"
+etape: 25
+ordre: 3
+objectif: "Distinguer shard et réplica, dire ce que fait Keeper et ce que voient les applications quand il est perdu."
+commandes:
+  - c: "SELECT database, table, is_readonly, absolute_delay, queue_size FROM system.replicas"
+    d: "état de la réplication, table par table"
+  - c: "SELECT cluster, shard_num, replica_num, host_name FROM system.clusters"
+    d: "la topologie vue par ClickHouse"
+  - c: "kubectl get chk -n <ns>"
+    d: "les installations Keeper gérées par l'opérateur"
+quiz:
+  - q: "Un client veut que la base analytique survive à la perte d'un nœud. Elle tient largement sur une machine. Que proposes-tu ?"
+    choix:
+      - "2 shards et 1 réplica par shard"
+      - "1 shard, 1 réplica, et un disque plus gros"
+      - "1 shard et 2 ou 3 réplicas, plus 3 Keeper"
+    bonne: 2
+    explication: "La survie à une panne, c'est le réplica : une copie complète ailleurs. Le shard découpe les données pour la capacité et n'apporte aucune copie."
+  - q: "Les applications reçoivent `Table is in readonly mode` à chaque insert, mais les tableaux de bord s'affichent encore. Cause la plus probable ?"
+    choix:
+      - "Keeper est injoignable ou n'a plus la majorité"
+      - "Le disque d'un réplica est plein"
+      - "La table a trop de parts actives"
+    bonne: 0
+    explication: "Sans Keeper, les tables répliquées se mettent en lecture seule : les `SELECT` passent, les `INSERT` échouent. Les données ne sont pas perdues, l'écriture reprend au retour de Keeper."
+  - q: "Cluster à 2 réplicas. Tu crées une table avec `ENGINE = MergeTree` sur le premier pod et tu y insères des lignes. Que contient le second réplica ?"
+    choix:
+      - "Les mêmes lignes, copiées par Keeper"
+      - "Rien : seule une table `ReplicatedMergeTree` est répliquée"
+      - "La table vide, qui se remplira à la prochaine fusion"
+    bonne: 1
+    explication: "La réplication se décide table par table, par le moteur. Une table `MergeTree` simple n'existe que sur le pod où elle a été créée."
+  - q: "Combien d'instances Keeper faut-il pour tolérer la perte d'une instance ?"
+    choix:
+      - "2, l'une prend le relais de l'autre"
+      - "3, car il faut garder une majorité"
+      - "4, pour avoir deux paires"
+    bonne: 1
+    explication: "Keeper décide à la majorité. Avec 3, il en reste 2 sur 3 après une perte. Avec 2, une perte laisse 1 sur 2 : plus de majorité."
+---
+
+<Idee>
+Un **réplica** est une copie complète des données sur un autre pod : il protège d'une panne. Un **shard** est un morceau des données : il ajoute de la capacité. **Keeper** est le petit service qui dit à chaque réplica ce qu'il doit avoir.
+</Idee>
+
+<Analogie>
+Un réplica, c'est un **entrepôt jumeau** : même stock, autre adresse. Un shard, c'est un **entrepôt régional** : le stock est découpé entre plusieurs sites. Keeper, c'est le **bureau des registres** : trois greffiers notent chaque palette reçue et décident à la majorité.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Un insert arrive :: L'application écrit sur le réplica 0. Il range la part sur son disque. :: APP, APP>R0, R0
+  %% scene: Le registre :: Le réplica 0 inscrit la nouvelle part dans Keeper. Les greffiers la valident à la majorité. :: R0>KP, KP
+  %% scene: Le jumeau se met à jour :: Le réplica 1 lit le registre, voit qu'il lui manque une part et va la chercher chez le 0, port 9009. :: KP>R1, R0>R1, R1
+  %% scene: Keeper perdu :: Plus de majorité : les tables répliquées passent en lecture seule. Les `SELECT` marchent, les `INSERT` échouent. :: !KP, !APP>R0, R0, R1
+  APP["<b>Application</b><br/>INSERT par lot"]:::ext --> R0["<b>Réplica 0</b><br/>chi-prod-main-0-0-0"]:::cible
+  R0 -->|"je viens de recevoir"| KP["<b>Keeper × 3</b><br/>registre, majorité"]:::moteur
+  KP -->|"il te manque ça"| R1["<b>Réplica 1</b><br/>chi-prod-main-0-1-0"]:::cible
+  R0 -.->|"copie · 9009"| R1
+```
+
+## Deux axes à ne pas confondre
+
+| Besoin du client | Réponse |
+|---|---|
+| Survivre à la perte d'un nœud | ✔ des réplicas |
+| Répartir les lectures | ✔ des réplicas |
+| Dépasser la capacité d'une machine | ✔ des shards |
+| « Plus de sécurité » avec 2 shards | ✘ aucune copie en plus |
+
+Topologie de départ raisonnable : **1 shard, 2 ou 3 réplicas**. On n'ajoute des shards que contraint, parce que redécouper des données existantes n'est pas automatique. Avec plusieurs shards, une table `Distributed` sert de guichet : elle ne stocke rien, elle interroge chaque shard et rassemble.
+
+## La réplication se décide par table
+
+C'est le moteur de la table qui réplique : `ReplicatedMergeTree`. Une table `MergeTree` simple reste sur le pod où on l'a créée, même dans un cluster à trois réplicas.
+
+## Keeper
+
+ClickHouse Keeper remplace ZooKeeper dans ce rôle. Il tient le journal de la réplication et fait passer les requêtes `ON CLUSTER`, celles qui créent une table sur tous les hôtes à la fois.
+
+- **Majorité** : 3 instances tolèrent une perte, 5 en tolèrent deux. Toujours impair, sur des nœuds différents.
+- **Disque rapide** : Keeper synchronise chaque écriture sur disque. Un disque lent donne des sessions expirées côté ClickHouse.
+
+<Terrain>
+Un client qui veut « économiser » en ne mettant qu'un Keeper retire toute la haute disponibilité en écriture : ce pod seul devient le point de panne de tous les inserts.
+</Terrain>
+
+<Piege>
+Croire les données répliquées parce que le cluster a deux réplicas. Vérifie le moteur des tables, puis `system.replicas`.
+</Piege>
+
+<Retenir>
+Réplica pour la disponibilité, shard pour la capacité. La réplication passe par `ReplicatedMergeTree` et par Keeper, à trois instances. Keeper perdu : lecture seule, pas de perte.
+</Retenir>

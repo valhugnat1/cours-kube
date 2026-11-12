@@ -1,0 +1,97 @@
+---
+titre: "Avant d'installer : les questions au client"
+etape: 25
+ordre: 8
+objectif: "Lister ce que l'opérateur installe au niveau du cluster et les questions à poser au client avant le premier déploiement."
+commandes:
+  - c: "kubectl get crd | grep clickhouse"
+    d: "CRDs déjà présentes, donc opérateur déjà là ?"
+  - c: "kubectl get deploy -A | grep clickhouse-operator"
+    d: "où tourne l'opérateur existant"
+  - c: "kubectl auth can-i create customresourcedefinitions"
+    d: "as-tu le droit d'installer les CRDs ?"
+  - c: "kubectl get storageclass"
+    d: "classe bloc disponible, par défaut, extensible"
+quiz:
+  - q: "Client air-gapped. Ton `chi` pointe bien l'image ClickHouse sur son registry. Le pod de l'opérateur, lui, reste en `ImagePullBackOff`. Qu'as-tu oublié ?"
+    choix:
+      - "De créer le namespace de l'opérateur"
+      - "De pousser et de pointer aussi les images de l'opérateur lui-même"
+      - "D'installer cert-manager avant l'opérateur"
+    bonne: 1
+    explication: "Quatre images sont en jeu : serveur ClickHouse, Keeper, opérateur et son exporteur de métriques. Chacune doit être dans le registry du client et référencée là."
+  - q: "`kubectl get crd | grep clickhouse` renvoie déjà des CRDs chez le client. Que fais-tu avant d'installer ton opérateur ?"
+    choix:
+      - "Tu trouves qui possède l'opérateur existant et sa version"
+      - "Tu installes le tien dans un autre namespace, sans conséquence"
+      - "Tu supprimes les CRDs pour repartir propre"
+    bonne: 0
+    explication: "Les CRDs sont uniques dans le cluster. Deux opérateurs sur les mêmes ressources se battent, et supprimer une CRD supprime toutes les installations existantes."
+  - q: "Ton accès chez le client est limité à un namespace. Que ne peux-tu pas faire seul ?"
+    choix:
+      - "Créer un `chi` dans ton namespace"
+      - "Créer le Secret du mot de passe applicatif"
+      - "Installer les CRDs et le ClusterRole de l'opérateur"
+    bonne: 2
+    explication: "CRDs et ClusterRole sont des objets de cluster. Il faut un administrateur du cluster, souvent l'équipe plateforme du client, pour les poser."
+---
+
+<Idee>
+L'**opérateur** s'installe une fois par cluster et touche à des objets que seul un administrateur peut créer. Avant d'écrire le moindre `chi`, tu poses donc quelques questions au client : droits, registry, disques, nœuds.
+</Idee>
+
+<Analogie>
+Avant d'envoyer le chef de chantier, on vérifie le **permis de construire** (les droits de cluster), le **fournisseur de matériaux** autorisé sur le site (le registry), la **nature du terrain** (la StorageClass), et s'il n'y a pas **déjà un chef de chantier** sur place.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Déjà là ? :: Des CRDs clickhouse existent : un opérateur tourne peut-être déjà. On s'entend avec son propriétaire, on n'en ajoute pas un second. :: Q1
+  %% scene: Les droits :: CRDs et ClusterRole sont des objets de cluster. Sans ces droits, l'équipe plateforme du client les installe. :: Q1>Q2, Q2
+  %% scene: Le registry :: En air-gapped, quatre images à pousser dans le registry du client, et autant de références à corriger. :: Q2>Q3, Q3
+  %% scene: Le terrain :: Une StorageClass bloc et rapide, assez de nœuds pour séparer 3 Keeper et les réplicas, un S3 pour les sauvegardes. :: Q3>Q4, Q4
+  %% scene: Alors seulement :: L'opérateur s'installe, puis ton chart pose le `chi`. Dans cet ordre. :: Q4>OP, OP, OP>CHI, CHI
+  Q1{{"<b>① Opérateur déjà présent ?</b><br/>kubectl get crd"}}:::ext --> Q2{{"<b>② Qui pose les CRDs ?</b><br/>droits de cluster"}}:::ext
+  Q2 --> Q3{{"<b>③ Quel registry ?</b><br/>4 images"}}:::ext
+  Q3 --> Q4{{"<b>④ Disques, nœuds, S3 ?</b><br/>StorageClass bloc"}}:::ext
+  Q4 --> OP["<b>Opérateur installé</b><br/>une fois par cluster"]:::moteur
+  OP --> CHI["<b>Ton chi</b><br/>dans ton namespace"]:::regle
+```
+
+## Ce que l'installation pose dans le cluster
+
+- **4 CRDs** : `clickhouseinstallations`, `clickhouseinstallationtemplates`, `clickhouseoperatorconfigurations` et `clickhousekeeperinstallations`.
+- Un ServiceAccount, un ClusterRole et son binding.
+- Le Deployment `clickhouse-operator`, à deux conteneurs : l'opérateur et un exporteur de métriques (port 8888).
+
+Le manifeste par défaut l'installe dans `kube-system`, d'où il surveille **tous** les namespaces. Il existe aussi un chart Helm, `altinity-clickhouse-operator`.
+
+## Les questions, dans l'ordre
+
+| Question | Ce qui casse sinon |
+|---|---|
+| Un opérateur ClickHouse est-il déjà là ? | ✘ deux opérateurs se battent |
+| Qui installe les CRDs ? | ✘ `forbidden` à l'installation |
+| Quel registry, quel secret de pull ? | ✘ `ImagePullBackOff` |
+| Quelle StorageClass bloc ? | ✘ PVC `Pending` |
+| Combien de nœuds et de zones ? | ✘ pods `Pending`, anti-affinité impossible |
+| Un S3 pour les sauvegardes ? | ✘ pas de sauvegarde hors cluster |
+| UID imposé, Pod Security ? | ✘ `permission denied` sur le volume |
+
+Les quatre images : `clickhouse-server`, `clickhouse-keeper`, `clickhouse-operator` et `metrics-exporter`.
+
+## Les CRDs et Helm
+
+Le chart de l'opérateur installe **et met à jour** ses CRDs par un hook (`crdHook.enabled`). C'est l'inverse du comportement Helm standard de l'étape 9. Si le client gère les CRDs lui-même, désactive ce hook et livre-lui les fichiers.
+
+<Terrain>
+Sur OpenShift, le conteneur ClickHouse tourne par défaut avec l'UID 101 et un `fsGroup`. À vérifier pour la distribution du client avant le jour de l'installation.
+</Terrain>
+
+<Piege>
+Une CRD plus ancienne que ton `chi` : les champs qu'elle ne connaît pas disparaissent sans erreur. Compare la version de l'opérateur en place avec celle que ton chart attend.
+</Piege>
+
+<Retenir>
+Avant tout : opérateur déjà présent, droits sur les CRDs, registry pour quatre images, StorageClass bloc, nombre de nœuds, S3. L'opérateur d'abord, le `chi` ensuite.
+</Retenir>

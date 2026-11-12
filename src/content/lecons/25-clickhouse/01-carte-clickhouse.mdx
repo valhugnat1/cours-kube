@@ -1,0 +1,99 @@
+---
+titre: "ClickHouse chez un client : la carte"
+etape: 25
+ordre: 1
+objectif: "Situer les quatre morceaux d'un ClickHouse sur Kubernetes et les trois étages où vérifier qu'il marche."
+commandes:
+  - c: "kubectl get crd | grep clickhouse"
+    d: "un opérateur ClickHouse est-il déjà installé ?"
+  - c: "kubectl get chi -A"
+    d: "les installations ClickHouse et leur statut"
+  - c: "kubectl get pods,pvc -n <ns>"
+    d: "étage 1 : pods et disques"
+quiz:
+  - q: "Chez un client, le chat répond normalement, mais les tableaux de consommation n'ont pas bougé depuis hier. Quelle brique regardes-tu en premier ?"
+    choix:
+      - "L'ingress controller, qui route le trafic"
+      - "La base analytique, dont la panne ne casse pas le produit"
+      - "Le serveur d'inférence, qui produit les réponses"
+    bonne: 1
+    explication: "La base analytique porte consommation et traces. Si elle tombe, le produit continue de répondre et seuls les tableaux se figent : c'est une panne silencieuse."
+  - q: "Les pods ClickHouse sont tous `Running` et `Ready`. Que peux-tu affirmer au client ?"
+    choix:
+      - "Que les pods tournent, pas encore que les données arrivent"
+      - "Que la réplication est à jour entre les réplicas"
+      - "Que les inserts des applications sont acceptés"
+    bonne: 0
+    explication: "`Running` est l'étage 1. La réplication et les inserts se vérifient à l'étage 3, dans ClickHouse lui-même. Un pod vert peut héberger des tables en lecture seule."
+  - q: "Pourquoi une base colonnaire convient-elle à la consommation de tokens par organisation et par jour ?"
+    choix:
+      - "Elle modifie une ligne précise très vite"
+      - "Elle garantit des transactions entre plusieurs tables"
+      - "Elle agrège très vite une colonne sur des milliards de lignes"
+    bonne: 2
+    explication: "Ranger par colonne rend les agrégations massives rapides. Le prix : les écritures se font par lots et la modification ligne à ligne est coûteuse."
+---
+
+<Idee>
+**ClickHouse** est la base analytique de la plateforme : elle range les données par colonne pour additionner très vite des milliards de lignes. Chez un client, tu ne la déploies pas à la main : tu écris un plan, et un **opérateur** la construit.
+</Idee>
+
+<Analogie>
+Un **entrepôt logistique**. Les marchandises arrivent par **camions pleins**, sont rangées par **rayon**, et on vient y faire des inventaires géants. Toi, tu donnes le **plan de l'architecte** ; un **chef de chantier** construit et entretient. On garde cet entrepôt pendant toute l'étape.
+</Analogie>
+
+## La carte de l'étape
+
+```mermaid
+flowchart TD
+  APP["<b>Applications</b><br/>par lots · leçon 2"]:::ext --> SVC["<b>Service</b><br/>l'entrée · leçon 7"]:::regle
+  SVC --> CH["<b>Pods ClickHouse</b><br/>réplicas · leçon 3"]:::cible
+  CHI["<b>chi</b><br/>le plan · leçons 4 et 5"]:::regle --> OP["<b>Opérateur</b><br/>construit · leçons 4, 8"]:::moteur
+  OP --> CH
+  CH --> PVC["<b>PVC</b><br/>les disques · leçon 6"]:::regle
+  CH -.-|"coordonnés par"| KP["<b>Keeper</b><br/>leçon 3"]:::moteur
+```
+
+Les leçons 9 à 11 couvrent ensuite la vie de l'ensemble : mise à jour, sauvegarde, diagnostic.
+
+## Quatre morceaux
+
+| Morceau | Son rôle |
+|---|---|
+| Pods ClickHouse | Stockent et interrogent. Un pod, un disque. |
+| Keeper | Petit service qui coordonne les réplicas. |
+| Opérateur | Lit ton plan, fabrique StatefulSets et Services. |
+| PVC | Les disques. La seule chose irremplaçable. |
+
+## Pourquoi « colonnaire » change tout
+
+Une base classique range ligne par ligne : parfait pour retrouver **une** commande. ClickHouse range colonne par colonne : parfait pour répondre à « combien de tokens par organisation, par jour, sur 90 jours ». En échange, on y écrit **par lots**, et modifier une ligne précise coûte cher.
+
+Dans la plateforme, elle reçoit les événements de consommation, les traces et les évaluations.
+
+## Trois étages, trois vérifications
+
+```mermaid
+flowchart TD
+  %% scene: Étage 1, Kubernetes :: Le pod est `Running`, le PVC est `Bound`. Le bâtiment est debout, rien de plus. :: K
+  %% scene: Étage 2, l'opérateur :: Le `chi` est en statut `Completed` : le chef de chantier a fini d'appliquer ton plan. :: K>O, O
+  %% scene: Étage 3, ClickHouse :: Les réplicas sont à jour et les inserts passent. C'est ici que se décide si les données arrivent. :: O>C, C
+  %% scene: La panne silencieuse :: L'étage 3 casse, le produit répond toujours. Seuls les tableaux de bord se figent, et personne ne crie. :: !C, !C>D, !D
+  K["<b>① Kubernetes</b><br/>pod Running, PVC Bound"]:::regle --> O["<b>② Opérateur</b><br/>chi Completed"]:::moteur
+  O --> C["<b>③ ClickHouse</b><br/>réplicas à jour, inserts ✔"]:::cible
+  C --> D["<b>Tableaux de bord</b><br/>consommation, facturation"]:::ext
+```
+
+Chaque étage a sa propre idée de « ça marche », et l'étage du dessous ne dit rien de celui du dessus. C'est le fil rouge de l'étape.
+
+<Terrain>
+Si ClickHouse tombe, le chat continue de répondre. Ce sont la consommation et la facturation qui s'arrêtent, sans alerte visible côté utilisateur.
+</Terrain>
+
+<Piege>
+Répondre « tout est vert » après un `kubectl get pods`. Tu n'as vérifié que l'étage 1.
+</Piege>
+
+<Retenir>
+Quatre morceaux : pods, Keeper, opérateur, disques. Trois étages à vérifier dans l'ordre : Kubernetes, opérateur, ClickHouse. Un pod vert ne prouve pas que les données arrivent.
+</Retenir>

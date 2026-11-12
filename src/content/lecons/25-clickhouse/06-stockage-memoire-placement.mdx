@@ -1,0 +1,103 @@
+---
+titre: "Disques, mémoire, placement : ce qui tient la base"
+etape: 25
+ordre: 6
+objectif: "Dire ce qui arrive aux PVC quand on supprime un chi, régler la mémoire d'un pod ClickHouse et placer réplicas et Keeper."
+commandes:
+  - c: "kubectl get storageclass"
+    d: "les classes du client, et si elles sont extensibles"
+  - c: "kubectl get pvc -n <ns>"
+    d: "un PVC par hôte, Bound ou non"
+  - c: "kubectl get pods -n <ns> -o wide"
+    d: "sur quel nœud tourne chaque réplica"
+  - c: "kubectl describe pod chi-prod-main-0-0-0 -n <ns>"
+    d: "Last State : OOMKilled, exit 137 ?"
+quiz:
+  - q: "Un `helm uninstall` de la plateforme supprime le `chi`. Le `volumeClaimTemplate` n'a pas de `reclaimPolicy`. Que deviennent les PVC de ClickHouse ?"
+    choix:
+      - "Ils restent, comme pour tout StatefulSet"
+      - "Ils sont supprimés avec le `chi`"
+      - "Ils passent en `Released` en attendant une confirmation"
+    bonne: 1
+    explication: "L'opérateur gère lui-même les PVC et les supprime avec le `chi`, sauf `reclaimPolicy: Retain` dans le template. C'est l'inverse du réflexe StatefulSet de l'étape 5."
+  - q: "Une grosse requête de tableau de bord échoue avec `Memory limit exceeded`, code 241. Le pod n'a pas redémarré. Que s'est-il passé ?"
+    choix:
+      - "ClickHouse a tué la requête pour rester sous sa limite, le pod est intact"
+      - "Le kubelet a tué le conteneur pour dépassement mémoire"
+      - "Keeper a refusé la requête faute de majorité"
+    bonne: 0
+    explication: "ClickHouse connaît la limite de son conteneur et se borne lui-même. La requête meurt, pas le pod. Un `OOMKilled` avec exit 137, lui, vient du noyau."
+  - q: "Les deux réplicas tournent sur le même nœud. Le client drain ce nœud pour une maintenance. Conséquence ?"
+    choix:
+      - "Aucune, le Service bascule sur l'autre réplica"
+      - "Keeper recopie les données ailleurs avant le drain"
+      - "Les deux copies s'arrêtent ensemble : la base est indisponible"
+    bonne: 2
+    explication: "Deux réplicas sur un nœud, ce n'est pas de la haute disponibilité. Il faut une anti-affinité entre réplicas, et un PodDisruptionBudget pour borner les drains."
+---
+
+<Idee>
+Trois réglages tiennent la base debout : un **disque** qui survit à la suppression du plan, une **mémoire** fixée pour que le pod ne soit pas tué, et un **placement** qui sépare les copies sur des nœuds différents.
+</Idee>
+
+<Analogie>
+Les PVC sont le **terrain et les rayonnages** : on peut reconstruire un bâtiment, pas le stock. La mémoire, c'est la **surface du quai** : trop petite, une grosse opération est refusée. Et deux entrepôts jumeaux **dans la même rue** brûlent ensemble.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Le chi est supprimé :: Un `helm uninstall` ou un `kubectl delete chi` : l'opérateur démonte tout ce qu'il a construit. :: DEL, DEL>OP, OP
+  %% scene: Avec Retain :: `reclaimPolicy: Retain` dans le template : l'opérateur laisse les PVC. Recrée le même `chi`, les données reviennent. :: OP>R, R
+  %% scene: Sans Retain :: Rien d'écrit : l'opérateur supprime aussi les PVC. Le terrain part avec le bâtiment. :: !OP>X, !X
+  %% scene: Puis la StorageClass :: Une fois le PVC supprimé, c'est la reclaim policy du PV qui décide : `Delete` efface le disque pour de bon. :: !X>PV, !PV
+  DEL["<b>helm uninstall</b><br/>le chi disparaît"]:::ext --> OP["<b>Opérateur</b><br/>démonte ses objets"]:::moteur
+  OP -->|"reclaimPolicy: Retain"| R["<b>PVC conservés</b><br/>données intactes ✔"]:::cible
+  OP -->|"rien d'écrit"| X["<b>PVC supprimés</b><br/>avec le chi ✘"]:::ko
+  X --> PV["<b>PV de la StorageClass</b><br/>Delete : disque effacé"]:::ko
+```
+
+## Le disque
+
+- **La StorageClass du client**, jamais supposée : du bloc `ReadWriteOnce`, rapide. Pas de NFS pour ClickHouse ni pour Keeper.
+- **`reclaimPolicy: Retain`** dans le `volumeClaimTemplate` du `chi`. À ne pas confondre avec la reclaim policy du **PV**, celle de la StorageClass, qui joue après.
+- **Agrandir** : on change la taille dans le `chi`. Cela ne marche que si la classe a `allowVolumeExpansion: true`. À essayer en preview avant de le promettre.
+
+## La mémoire
+
+ClickHouse lit la limite de son conteneur et se borne à une fraction, 90 % par défaut (`max_server_memory_usage_to_ram_ratio`).
+
+| Ce que tu vois | Ce que ça veut dire |
+|---|---|
+| `Memory limit exceeded`, code 241 | ✔ la requête est tuée, le pod vit |
+| `OOMKilled`, exit 137 | ✘ le pod est tué : limite trop basse pour la charge |
+
+Mets **requests égales aux limits en mémoire** : c'est la QoS Guaranteed de l'étape 3, celle d'une base. Évite une limite CPU serrée : les fusions prendraient du retard.
+
+## Le placement
+
+<Compare>
+<Cas ton="ok" titre="Séparés">
+
+- Anti-affinité entre réplicas
+- 3 Keeper sur 3 nœuds
+- Un PodDisruptionBudget
+
+</Cas>
+<Cas ton="ko" titre="Entassés">
+
+- 2 réplicas, même nœud
+- Un drain coupe tout
+- Keeper sans majorité
+
+</Cas>
+</Compare>
+
+En cloud multi-zone, un disque bloc est collé à sa zone : le pod ne peut renaître que là. Répartis donc les réplicas entre les zones.
+
+<Terrain>
+Un client à trois nœuds peut porter 3 Keeper et 2 réplicas séparés. À deux nœuds, la majorité de Keeper ne survit pas à la perte du nœud qui en héberge deux : dis-le avant, pas après.
+</Terrain>
+
+<Retenir>
+`reclaimPolicy: Retain` dans le `chi`, sinon supprimer le plan supprime les disques. Mémoire en requests égales aux limits. Réplicas et Keeper sur des nœuds différents.
+</Retenir>

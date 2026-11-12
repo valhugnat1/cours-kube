@@ -1,0 +1,98 @@
+---
+titre: "Parts et fusions : pourquoi on insère par lots"
+etape: 25
+ordre: 2
+objectif: "Expliquer ce qu'est une part, pourquoi de petits inserts mènent à « Too many parts » et à quoi sert un TTL."
+commandes:
+  - c: "SELECT count() FROM system.parts WHERE active AND table = 'events'"
+    d: "nombre de parts actives d'une table"
+  - c: "SELECT * FROM system.merges"
+    d: "les fusions en cours"
+  - c: "SELECT name, free_space, total_space FROM system.disks"
+    d: "l'espace libre vu par ClickHouse"
+quiz:
+  - q: "Un service écrit chaque événement dans ClickHouse dès qu'il arrive, un insert par ligne, 500 fois par seconde. Que va-t-il se passer ?"
+    choix:
+      - "Rien de particulier, ClickHouse regroupe tout seul sans limite"
+      - "Les parts s'accumulent plus vite que les fusions, puis les inserts sont refusés"
+      - "Keeper perd sa majorité sous la charge"
+    bonne: 1
+    explication: "Un insert crée une part. Les fusions ne suivent pas, et au-delà du seuil ClickHouse refuse avec `Too many parts`. Le remède est côté écriture : des lots."
+  - q: "Les logs applicatifs montrent `Too many parts`. Un collègue propose de monter `parts_to_throw_insert`. Qu'en penses-tu ?"
+    choix:
+      - "Cela retarde l'erreur sans traiter la cause, qui est la taille des inserts"
+      - "C'est la correction recommandée, à appliquer aussitôt"
+      - "Ce réglage n'existe pas, il faut ajouter un réplica"
+    bonne: 0
+    explication: "Monter le seuil laisse encore plus de parts s'accumuler et ralentit les requêtes. La cause est dans le rythme d'écriture : grouper les lignes."
+  - q: "La table des traces grossit depuis six mois et le disque est à 90 %. Qu'aurait-il fallu poser dès le départ ?"
+    choix:
+      - "Un second shard pour répartir les traces"
+      - "Une table `Distributed` devant la table"
+      - "Un TTL qui supprime les données trop vieilles"
+    bonne: 2
+    explication: "Un TTL sur la table supprime les données périmées pendant les fusions. Sans lui, le disque se remplit lentement jusqu'au blocage."
+---
+
+<Idee>
+Chaque `INSERT` crée un petit paquet de fichiers, une **part**. ClickHouse fusionne ensuite les parts en arrière-plan. Trop de petits inserts, et il croule sous les parts : on écrit donc **par lots**.
+</Idee>
+
+<Analogie>
+Chaque insert est une **palette** posée sur le quai. Des **caristes** regroupent les palettes en fond d'entrepôt. Un camion plein, c'est une palette bien remplie. Mille coursiers avec un colis chacun, c'est mille palettes : le quai sature et l'entrepôt **ferme la barrière**.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Un insert, une part :: Le consommateur envoie un lot de 10 000 lignes. ClickHouse écrit une part : une palette pleine sur le quai. :: APP, APP>P, P
+  %% scene: Les fusions :: En arrière-plan, les caristes regroupent les petites parts en grosses. Les requêtes lisent moins de fichiers. :: P>M, M, M>G, G
+  %% scene: Le TTL :: À chaque fusion, les lignes plus vieilles que le TTL sont jetées. C'est la date de péremption. :: M, G
+  %% scene: Trop de parts :: Mille inserts d'une ligne : les parts arrivent plus vite qu'elles ne fusionnent. Au seuil, l'insert est refusé. :: !APP>P, !P, !KO
+  APP["<b>Consommateur du bus</b><br/>1 insert de 10 000 lignes"]:::ext --> P["<b>Parts</b><br/>1 insert = 1 part"]:::cible
+  P --> M["<b>Fusions</b><br/>en arrière-plan"]:::moteur
+  M --> G["<b>Grosses parts</b><br/>triées, TTL appliqué"]:::cible
+  P -.-> KO["<b>Too many parts</b><br/>insert refusé ✘"]:::ko
+```
+
+## Ce qu'est une part
+
+Le moteur de table standard s'appelle **MergeTree**. Une part est un répertoire sur le disque, trié selon la clé `ORDER BY` de la table, et qu'on ne modifie plus. Lire une table, c'est lire toutes ses parts actives : moins il y en a, plus c'est rapide.
+
+| Rythme d'écriture | Ce qui se passe |
+|---|---|
+| 1 insert de 10 000 lignes par seconde | ✔ une part par seconde, les fusions suivent |
+| 500 inserts d'une ligne par seconde | ✘ 500 parts par seconde, saturation |
+| Partition par jour **et** par client | ✘ des parts partout, même saturation |
+
+Le seuil s'appelle `parts_to_throw_insert` : 3000 parts actives **par partition** par défaut. Le monter ne fait que retarder l'erreur.
+
+## Partitions et TTL
+
+- `PARTITION BY toYYYYMM(ts)` découpe la table par mois : pratique pour retirer un mois d'un coup.
+- `TTL ts + INTERVAL 30 DAY` supprime les lignes de plus de 30 jours, pendant les fusions.
+- Supprimer ou corriger **une** ligne est une **mutation** : ClickHouse réécrit des parts entières, en différé. À réserver aux cas obligés, comme une demande RGPD.
+
+<Compare>
+<Cas ton="ok" titre="Par lots">
+
+- Des milliers de lignes par insert
+- Quelques inserts par seconde
+- Sinon : `async_insert` côté serveur
+
+</Cas>
+<Cas ton="ko" titre="Ligne à ligne">
+
+- Une part par événement
+- Requêtes de plus en plus lentes
+- Puis `Too many parts`
+
+</Cas>
+</Compare>
+
+<Terrain>
+Dans la plateforme, ce sont les consommateurs du bus de messages qui accumulent puis écrivent. Un `Too many parts` se corrige chez celui qui écrit, pas dans ton chart.
+</Terrain>
+
+<Retenir>
+Un insert, une part. On écrit par lots, on partitionne large, et on pose un TTL dès la création de la table, sinon le disque finit plein.
+</Retenir>

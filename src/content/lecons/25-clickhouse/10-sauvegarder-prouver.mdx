@@ -1,0 +1,109 @@
+---
+titre: "Un réplica n'est pas une sauvegarde"
+etape: 25
+ordre: 10
+objectif: "Expliquer pourquoi la réplication ne protège pas d'une erreur, nommer deux mécanismes de sauvegarde et les trois preuves à fournir."
+commandes:
+  - c: "SELECT name, status, start_time, end_time FROM system.backups"
+    d: "les sauvegardes natives et leur état"
+  - c: "kubectl get cronjob,job -n <ns>"
+    d: "la sauvegarde planifiée et ses dernières exécutions"
+  - c: "BACKUP DATABASE analytics TO S3('<url>', '<clé>', '<secret>')"
+    d: "sauvegarde native d'une base vers un bucket"
+quiz:
+  - q: "Un script lance par erreur `DROP TABLE events` sur le réplica 0. Le cluster a trois réplicas. Que reste-t-il ?"
+    choix:
+      - "La table, intacte sur les deux autres réplicas"
+      - "Rien dans le cluster : la suppression se réplique aussi"
+      - "Une copie dans Keeper, restaurable par l'opérateur"
+    bonne: 1
+    explication: "La réplication recopie tout, erreurs comprises, en quelques secondes. Elle protège d'une panne de machine, pas d'une commande. Seule une sauvegarde hors du cluster rattrape ça."
+  - q: "Le client demande : « ClickHouse est sauvegardé ? » Le CronJob de sauvegarde existe dans le namespace. Que réponds-tu ?"
+    choix:
+      - "« Oui, le CronJob est en place »"
+      - "« Oui, puisque les réplicas sont synchronisés »"
+      - "« C'est configuré ; je vérifie le bucket et une restauration avant de l'affirmer »"
+    bonne: 2
+    explication: "Configuré ne veut pas dire présent, et présent ne veut pas dire restaurable. Trois preuves : l'exécution réussie, les objets dans le bucket, une restauration testée."
+  - q: "Pourquoi sauvegarder une base « seulement analytique » ?"
+    choix:
+      - "Parce qu'elle porte la consommation, donc la source de la facturation"
+      - "Parce que Keeper en a besoin pour redémarrer"
+      - "Parce que sans sauvegarde l'opérateur refuse les mises à jour"
+    bonne: 0
+    explication: "Les événements de consommation y vivent. La perdre, c'est perdre de quoi facturer. La décision de sauvegarder ou non doit être explicite, côté client."
+---
+
+<Idee>
+La réplication recopie tout, **y compris les erreurs** : un `DROP TABLE` arrive sur tous les réplicas en quelques secondes. Une vraie sauvegarde part **hors du cluster**, vers un stockage objet, et ne compte que si on a réussi à la restaurer.
+</Idee>
+
+<Analogie>
+L'entrepôt jumeau reçoit les mêmes ordres que l'original : si on ordonne de **vider un rayon**, les deux le vident. La sauvegarde, c'est un **garde-meuble dans une autre ville**, où l'on envoie régulièrement une copie du stock. Et on y retourne vérifier qu'on sait la ressortir.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: L'erreur se réplique :: Un `DROP TABLE` sur le réplica 0 est inscrit au registre. Le réplica 1 l'exécute aussi. Plus rien dans le cluster. :: !R0, !R0>R1, !R1
+  %% scene: La copie part dehors :: Un CronJob lance la sauvegarde d'un réplica vers un bucket S3, hors du cluster. :: CJ, CJ>R0, R0, R0>S3, S3
+  %% scene: Preuve 1, configurée :: Le CronJob existe et sa dernière exécution a réussi. Ce n'est que le début. :: CJ
+  %% scene: Preuve 2, présente :: Les objets sont dans le bucket, récents, d'une taille plausible. `system.backups` dit `BACKUP_CREATED`. :: S3
+  %% scene: Preuve 3, restaurable :: On restaure dans un autre namespace et on compare un `SELECT count()` avec la production. Seul vrai test. :: S3>T, T
+  CJ["<b>CronJob</b><br/>chaque nuit"]:::moteur --> R0["<b>Réplica 0</b><br/>BACKUP … TO S3"]:::cible
+  R0 -.->|"réplique tout"| R1["<b>Réplica 1</b><br/>même contenu, mêmes erreurs"]:::cible
+  R0 --> S3["<b>Bucket S3</b><br/>hors du cluster"]:::ext
+  S3 --> T["<b>Restauration de test</b><br/>autre namespace ✔"]:::cible
+```
+
+## Ce que couvre chaque protection
+
+| Incident | Réplicas | Sauvegarde |
+|---|---|---|
+| Un nœud tombe | ✔ | inutile |
+| Un disque est perdu | ✔ | inutile |
+| `DROP TABLE` par erreur | ✘ | ✔ |
+| Mutation qui abîme les données | ✘ | ✔ |
+| Namespace supprimé, PVC compris | ✘ | ✔ |
+
+## Deux mécanismes
+
+<Compare>
+<Cas titre="BACKUP natif">
+
+- Commande SQL
+- Vers S3 directement
+- Suivi : `system.backups`
+- À planifier toi-même
+
+</Cas>
+<Cas titre="clickhouse-backup">
+
+- Outil Altinity séparé
+- Souvent à côté du pod
+- Rétention, incrémental
+- S3, GCS, Azure
+
+</Cas>
+</Compare>
+
+Dans les deux cas, la destination est un stockage objet **hors du cluster**. En air-gapped, c'est le S3 du client (MinIO, Ceph), demandé à la leçon 8. Avec des tables répliquées, sauvegarder **un** réplica par shard suffit.
+
+## Trois preuves, sinon rien
+
+1. **Configurée** : le CronJob existe, sa dernière exécution a réussi.
+2. **Présente** : les objets sont dans le bucket, récents, de taille plausible.
+3. **Restaurable** : une restauration ailleurs, puis un comptage comparé à la production.
+
+C'est la règle de l'étape 17 pour PostgreSQL, appliquée ici.
+
+<Terrain>
+« C'est de l'analytique, pas besoin de sauvegarde » : cette base porte la consommation, donc la **facturation**. La décision appartient au client, mais elle doit être dite, pas héritée d'un oubli.
+</Terrain>
+
+<Piege>
+Mettre les identifiants S3 en clair dans la commande du CronJob. Ils vont dans un Secret, comme à l'étape 6.
+</Piege>
+
+<Retenir>
+Les réplicas protègent d'une panne, pas d'une erreur. Une sauvegarde vit hors du cluster et se prouve en trois temps : configurée, présente, restaurée.
+</Retenir>

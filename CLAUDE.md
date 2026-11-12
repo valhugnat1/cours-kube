@@ -9,7 +9,7 @@ Tout est en français. Tutoiement.
 | Chemin | Rôle |
 |---|---|
 | `sources/` | Le cours complet en Markdown, une étape par fichier. **Source de vérité du contenu.** Ne pas modifier sans demande explicite. |
-| `sources/00-plan-roadmap.md` | Le plan : 25 étapes (0 à 24) en 5 parties A à E. |
+| `sources/00-plan-roadmap.md` | Le plan : 25 étapes (0 à 24) en 5 parties A à E, plus la partie F « Cas pratiques » (étape 25, ClickHouse chez un client). |
 | `src/content/lecons/<NN-etape>/` | Les micro-leçons générées à partir des sources (MDX). |
 | `src/data/etapes.ts` | Liste des étapes et nom du dossier de chacune. |
 | `src/content.config.ts` | Schéma du frontmatter des leçons (validé au build). |

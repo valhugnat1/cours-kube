@@ -7,7 +7,7 @@ const lecons = defineCollection({
   loader: glob({ pattern: '**/*.mdx', base: './src/content/lecons' }),
   schema: z.object({
     titre: z.string().min(3).max(80),
-    etape: z.number().int().min(0).max(24),
+    etape: z.number().int().min(0).max(25),
     ordre: z.number().int().min(1),
     // recap : la page de fin d'étape, un grand schéma animé (ordre 80, avant le lab).
     type: z.enum(['lecon', 'lab', 'recap']).default('lecon'),

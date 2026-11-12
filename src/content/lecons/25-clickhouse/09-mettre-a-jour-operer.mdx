@@ -1,0 +1,110 @@
+---
+titre: "Mettre à jour sans coupure, un hôte à la fois"
+etape: 25
+ordre: 9
+objectif: "Décrire ce que fait l'opérateur quand on change l'image du chi, et arrêter ou agrandir le cluster par le chi."
+commandes:
+  - c: "kubectl get chi -n <ns> -w"
+    d: "suivre la mise à jour jusqu'à Completed"
+  - c: "kubectl get pods -n <ns> -w"
+    d: "voir les hôtes redémarrer un par un"
+  - c: "SELECT hostName(), version() FROM clusterAllReplicas('main', system.one)"
+    d: "la version réelle de chaque réplica"
+quiz:
+  - q: "Tu changes le tag de l'image dans le `chi`. L'image n'a pas été poussée dans le registry du client. Dans quel état trouves-tu le cluster ?"
+    choix:
+      - "Tous les pods sont en `ImagePullBackOff`, la base est coupée"
+      - "Le premier hôte est en `ImagePullBackOff`, les autres tournent encore sur l'ancienne version"
+      - "L'opérateur a annulé le changement et remis l'ancien tag"
+    bonne: 1
+    explication: "L'opérateur avance hôte par hôte et attend que chacun revienne. Le premier bloque, il n'ira pas plus loin : le `chi` reste `InProgress` et les autres réplicas servent toujours."
+  - q: "Le client veut éteindre ClickHouse le week-end sur son environnement de test, en gardant les données. Comment ?"
+    choix:
+      - "`spec.stop: \"yes\"` dans le `chi`"
+      - "`kubectl scale sts --replicas=0` sur chaque StatefulSet"
+      - "`kubectl delete chi`, puis le recréer lundi"
+    bonne: 0
+    explication: "`stop` arrête les pods en gardant la ressource et les PVC. Le `scale` à la main serait défait par l'opérateur, et la suppression du `chi` met les disques en jeu."
+  - q: "Mise à jour de ClickHouse sur un cluster à un seul réplica. Que dois-tu annoncer au client ?"
+    choix:
+      - "Aucune interruption, l'opérateur fait un rolling update"
+      - "Une perte des données non sauvegardées"
+      - "Une coupure le temps du redémarrage du pod"
+    bonne: 2
+    explication: "Le rolling update redémarre les hôtes un par un. Avec un seul hôte, personne ne sert pendant son redémarrage. La continuité vient du second réplica."
+  - q: "L'opérateur du client est en 0.25, ton chart est testé avec la 0.27. Comment montes-tu ?"
+    choix:
+      - "Directement en 0.27, les CRDs sont compatibles"
+      - "Une version mineure à la fois, notes de version lues, CRDs d'abord"
+      - "En supprimant l'opérateur et ses CRDs, puis en réinstallant"
+    bonne: 1
+    explication: "Sauter plusieurs mineures n'est pas supporté. On monte pas à pas, et les CRDs d'abord. Supprimer les CRDs supprimerait toutes les installations."
+---
+
+<Idee>
+Pour changer de version, tu modifies **une ligne du plan** : le tag de l'image. L'opérateur redémarre alors les hôtes **un par un**, en attendant chacun. Avec deux réplicas, la base reste disponible.
+</Idee>
+
+<Analogie>
+On rénove les entrepôts jumeaux **l'un après l'autre** : pendant que le premier est fermé, le second sert les clients. Le chef de chantier ne ferme le second que quand le premier a rouvert. Si le matériau n'est pas livré, il s'arrête au premier.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Une ligne change :: Dans le `chi`, le tag passe de `25.3` à `25.8`. Tu appliques. Le statut passe à `InProgress`. :: CHI, CHI>OP, OP
+  %% scene: Premier hôte :: L'opérateur redémarre le réplica 0 avec la nouvelle image. Le réplica 1 sert seul pendant ce temps. :: OP>R0, R0, R1
+  %% scene: Il attend :: Le réplica 0 est `Ready` et a rattrapé son retard. Alors seulement, l'opérateur passe au suivant. :: R0, OP>R1, R1
+  %% scene: Terminé :: Les deux hôtes sont à jour. Le `chi` repasse `Completed`. Vérifie la version par une requête. :: R0, R1, OK
+  %% scene: Image absente :: Le réplica 0 reste en `ImagePullBackOff`. L'opérateur n'avance pas : le réplica 1 sert toujours, en ancienne version. :: !R0, !OP>R0, R1
+  CHI["<b>chi prod</b><br/>image: …server:25.8"]:::regle --> OP["<b>Opérateur</b><br/>un hôte à la fois"]:::moteur
+  OP -->|"① d'abord"| R0["<b>Réplica 0</b><br/>redémarre en 25.8"]:::cible
+  OP -->|"② ensuite"| R1["<b>Réplica 1</b><br/>sert pendant ce temps"]:::cible
+  R0 --> OK["<b>chi Completed</b><br/>tous en 25.8 ✔"]:::cible
+  R1 --> OK
+```
+
+## Avant de toucher au tag
+
+- **Pousse l'image** dans le registry du client d'abord.
+- **Sauvegarde** : revenir en arrière d'une version majeure n'est pas garanti.
+- **Essaie en preview** avec une copie du schéma, et monte de version progressivement.
+
+## Les opérations courantes
+
+| Tu veux | Tu fais | Effet |
+|---|---|---|
+| Changer de version | tag de l'image dans le `podTemplate` | ✔ redémarrage hôte par hôte |
+| Ajouter un réplica | augmenter `replicasCount` | ✔ pod, disque et schéma créés, les tables répliquées se remplissent seules |
+| Tout arrêter | `spec.stop: "yes"` | ✔ pods arrêtés, PVC et ressource gardés |
+| Retirer un shard | à préparer : déplacer ses données avant | ✘ jamais à l'improviste |
+
+Changer un réglage (`settings`, `profiles`, `users`) régénère les ConfigMaps. Selon le réglage, ClickHouse le recharge à chaud ou l'opérateur redémarre les hôtes.
+
+<Compare>
+<Cas ton="ok" titre="2 réplicas ou plus">
+
+- Un hôte redémarre
+- L'autre sert
+- Pas de coupure
+
+</Cas>
+<Cas ton="ko" titre="1 seul réplica">
+
+- Le seul hôte redémarre
+- Personne ne sert
+- Coupure à annoncer
+
+</Cas>
+</Compare>
+
+## Mettre à jour l'opérateur lui-même
+
+Une version mineure à la fois : sauter plusieurs mineures n'est pas supporté. Lis les notes de version, mets les CRDs à jour d'abord (étape 9). Une mise à jour de l'opérateur peut déclencher une réconciliation, donc un redémarrage roulant des hôtes : choisis ton moment.
+
+<Terrain>
+En air-gapped, la mise à jour commence la veille : transfert des images, puis vérification qu'elles sont bien tirables depuis un nœud du client.
+</Terrain>
+
+<Retenir>
+On change le tag dans le `chi`, l'opérateur fait le reste, hôte par hôte. Image poussée et sauvegarde faite avant. Arrêt par `stop`, jamais par `scale`.
+</Retenir>

@@ -1,7 +1,7 @@
-// Le plan du cours : 5 parties, 25 étapes. Source de vérité pour le parcours.
+// Le plan du cours : 5 parties, 25 étapes, plus les cas pratiques (partie F). Source de vérité pour le parcours.
 // "dossier" = nom du dossier des leçons dans src/content/lecons/ et du fichier source dans sources/.
 
-export type Partie = { id: 'A' | 'B' | 'C' | 'D' | 'E'; titre: string; resume: string };
+export type Partie = { id: 'A' | 'B' | 'C' | 'D' | 'E' | 'F'; titre: string; resume: string };
 export type Etape = { n: number; partie: Partie['id']; titre: string; dossier: string };
 
 export const parties: Partie[] = [
@@ -10,6 +10,7 @@ export const parties: Partie[] = [
   { id: 'C', titre: 'La plateforme LLM, plan par plan', resume: 'Entrée, identité, inférence, données, observabilité.' },
   { id: 'D', titre: 'Exploitation et diagnostic', resume: 'k9s, méthode de debug, environnements éphémères.' },
   { id: 'E', titre: 'Restitution client et pratique', resume: 'Répondre juste à un client, GitOps, certification.' },
+  { id: 'F', titre: 'Cas pratiques', resume: 'Une brique à déployer chez un client, de bout en bout.' },
 ];
 
 export const etapes: Etape[] = [
@@ -38,6 +39,7 @@ export const etapes: Etape[] = [
   { n: 22, partie: 'D', titre: 'Faux positifs récurrents', dossier: '22-faux-positifs' },
   { n: 23, partie: 'E', titre: 'Communication technique avec un client', dossier: '23-communication-client' },
   { n: 24, partie: 'E', titre: 'GitOps, opérations, certification', dossier: '24-gitops-certif' },
+  { n: 25, partie: 'F', titre: 'Déployer ClickHouse chez un client', dossier: '25-clickhouse' },
 ];
 
 export const etapeParNumero = (n: number) => etapes.find((e) => e.n === n)!;

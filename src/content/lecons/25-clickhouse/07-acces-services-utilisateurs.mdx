@@ -1,0 +1,115 @@
+---
+titre: "Qui entre, et par où : Services et utilisateurs"
+etape: 25
+ordre: 7
+objectif: "Choisir le type du Service d'entrée, donner l'adresse aux applications et déclarer un utilisateur sans mot de passe en clair."
+commandes:
+  - c: "kubectl get svc -n <ns>"
+    d: "type et EXTERNAL-IP du Service clickhouse-<chi>"
+  - c: "kubectl exec -it chi-prod-main-0-0-0 -n <ns> -- clickhouse-client"
+    d: "un client SQL depuis le pod, en default"
+  - c: "curl http://clickhouse-prod.<ns>.svc.cluster.local:8123/ping"
+    d: "test HTTP depuis un pod du cluster : répond Ok."
+  - c: "SELECT name, auth_type, host_ip FROM system.users"
+    d: "les utilisateurs et d'où ils peuvent venir"
+quiz:
+  - q: "Sur GKE, après le déploiement, `kubectl get svc` montre `clickhouse-prod` avec une `EXTERNAL-IP` publique. Pourquoi ?"
+    choix:
+      - "Le Service d'entrée est de type LoadBalancer par défaut"
+      - "GKE expose automatiquement toutes les bases"
+      - "Keeper a demandé une IP pour son registre"
+    bonne: 0
+    explication: "L'opérateur crée le Service d'entrée en LoadBalancer si on ne dit rien. Sur un cloud, cela fabrique une IP externe. Un `serviceTemplate` en ClusterIP évite ça."
+  - q: "Le pod de l'API tente de se connecter avec l'utilisateur `default`, sans mot de passe. Refusé. Depuis le pod ClickHouse, la même connexion marche. Explication ?"
+    choix:
+      - "Le port 9000 est fermé entre namespaces par défaut"
+      - "L'opérateur restreint `default` aux pods du cluster ClickHouse"
+      - "`default` est désactivé tant que Keeper n'est pas prêt"
+    bonne: 1
+    explication: "`default` sert aux échanges entre réplicas. L'opérateur le borne aux IP des pods ClickHouse. Les applications ont leurs propres utilisateurs."
+  - q: "Où mets-tu le mot de passe de l'utilisateur `app` ?"
+    choix:
+      - "En clair dans le `chi`, c'est une ressource privée"
+      - "Dans une ConfigMap montée dans le pod"
+      - "Dans un Secret, référencé depuis le `chi` par `secretKeyRef`"
+    bonne: 2
+    explication: "Le `chi` est versionné et lisible par quiconque peut lire la ressource. Le mot de passe, de préférence sous forme de hash, vit dans un Secret que le `chi` référence."
+  - q: "Une application Python du cluster utilise un SDK HTTP. Quel port du Service vise-t-elle ?"
+    choix:
+      - "9009"
+      - "9000"
+      - "8123"
+    bonne: 2
+    explication: "8123 est le port HTTP. 9000 est le protocole natif de `clickhouse-client`, et 9009 sert à la réplication entre réplicas."
+---
+
+<Idee>
+Les applications entrent par **un Service** et avec **leur propre utilisateur**. Deux réglages par défaut surprennent : le Service d'entrée est un **LoadBalancer**, et l'utilisateur `default` ne marche que depuis les pods ClickHouse.
+</Idee>
+
+<Analogie>
+L'entrepôt a un **quai d'accueil** (le Service) et des **badges** (les utilisateurs). Par défaut, le chef de chantier ouvre un **portail sur la rue** : à refermer. Le badge `default` est un **passe de service** : il n'ouvre que d'un entrepôt à son jumeau.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: L'application entre :: Le pod de l'API appelle `clickhouse-prod:8123` avec l'utilisateur `app`. Le Service l'envoie vers un réplica. :: API, API>SVC, SVC, SVC>CH, CH
+  %% scene: Le badge :: ClickHouse vérifie le mot de passe, dont le hash vient d'un Secret, et l'adresse d'où vient l'appel. :: SEC>CH, SEC, CH
+  %% scene: Le passe de service :: Le même pod essaie `default` : refusé. Ce badge n'est accepté que depuis les pods ClickHouse eux-mêmes. :: !API>SVC, !SVC>CH
+  %% scene: Le portail sur la rue :: Laissé en LoadBalancer, le Service reçoit une IP externe sur un cloud : la base est joignable de dehors. :: !EXT, !EXT>SVC
+  API["<b>Pod de l'API</b><br/>utilisateur app"]:::ext --> SVC["<b>Service</b><br/>clickhouse-prod · 8123"]:::regle
+  EXT["<b>Internet</b><br/>si LoadBalancer ✘"]:::ko -.-> SVC
+  SVC --> CH["<b>Pods ClickHouse</b><br/>vérifient le badge"]:::cible
+  SEC["<b>Secret</b><br/>hash du mot de passe"]:::regle -.-> CH
+```
+
+## Les ports
+
+| Port | Pour qui |
+|---|---|
+| 8123 | HTTP : SDK, outils de BI |
+| 9000 | Protocole natif : `clickhouse-client` |
+| 9009 | Réplication entre réplicas, jamais pour les applications |
+| 8443, 9440 | Les variantes TLS de 8123 et 9000 |
+
+## Le Service d'entrée
+
+L'opérateur crée `clickhouse-prod` en **LoadBalancer**. Sur un cloud, cela peut donner une IP externe à la base. On-prem sans MetalLB, il reste en `pending`, comme à l'étape 4. Pour une base interne, déclare un `serviceTemplate` de type `ClusterIP`.
+
+Les applications appellent `clickhouse-prod.<ns>.svc.cluster.local:8123`.
+
+## Les utilisateurs
+
+```yaml
+spec:
+  configuration:
+    users:
+      app/password_sha256_hex:
+        valueFrom:
+          secretKeyRef:
+            name: clickhouse-app
+            key: password_sha256
+      app/networks/ip: "10.244.0.0/16"
+      app/profile: default
+```
+
+| Qui se connecte | Résultat |
+|---|---|
+| `app` depuis un pod du cluster | ✔ accepté |
+| `default` depuis le pod ClickHouse | ✔ accepté |
+| `default` depuis le pod de l'API | ✘ refusé |
+| `app` depuis une IP hors de `networks/ip` | ✘ refusé |
+
+Un utilisateur par application, avec le profil qui lui convient : `readonly` pour un outil de BI.
+
+<Terrain>
+Le pod CIDR change chez chaque client (étape 4) : la plage de `networks/ip` est une valeur de chart, pas une constante. Une NetworkPolicy complète l'isolation, si le CNI du client l'applique.
+</Terrain>
+
+<Piege>
+Tester depuis le pod ClickHouse avec `default`, voir que ça marche, et conclure que l'application passera. Teste depuis un pod applicatif, avec son utilisateur.
+</Piege>
+
+<Retenir>
+Service d'entrée en `ClusterIP`, port 8123 pour le HTTP. Un utilisateur par application, mot de passe dans un Secret. `default` reste le passe interne des réplicas.
+</Retenir>

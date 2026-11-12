@@ -179,6 +179,19 @@ Les repères §n renvoient aux 20 sections du document de notions de référence
 
 ---
 
+## Partie F — Cas pratiques
+
+Des briques précises à déployer chez un client, de bout en bout. Hors du parcours principal : à lire quand la mission arrive.
+
+### Étape 25 · Déployer ClickHouse chez un client
+- ClickHouse en bref : colonnaire, parts et merges, insertion par lots ; shards, réplicas, Keeper
+- Opérateur (Altinity, `ClickHouseInstallation`) : ce qu'il fabrique, comment lire et écrire la ressource
+- Stockage, mémoire, placement ; accès, utilisateurs, exposition ; préparation chez le client (registry, CRDs, StorageClass)
+- Mise à jour, sauvegarde prouvée, diagnostic sur trois étages (pod, opérateur, base)
+- *Exercice : opérateur + Keeper + 2 réplicas sur kind, réplication, perte d'un pod, changement de version, PVC conservés*
+
+---
+
 ## Fichiers du cours
 
 | Étape | Fichier |

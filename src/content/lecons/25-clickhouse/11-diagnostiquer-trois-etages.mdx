@@ -1,0 +1,119 @@
+---
+titre: "Diagnostiquer : pod, opérateur, base"
+etape: 25
+ordre: 11
+objectif: "Remonter un incident ClickHouse dans l'ordre des trois étages et reconnaître readonly, Too many parts et le code 241."
+commandes:
+  - c: "kubectl get pods,pvc,chi -n <ns>"
+    d: "étages 1 et 2 d'un coup d'œil"
+  - c: "kubectl -n kube-system logs deploy/clickhouse-operator -c clickhouse-operator --tail=100"
+    d: "étage 2 : pourquoi l'opérateur attend"
+  - c: "SELECT table, is_readonly, absolute_delay, queue_size FROM system.replicas"
+    d: "étage 3 : réplication"
+  - c: "SELECT name, value, last_error_time FROM system.errors ORDER BY last_error_time DESC LIMIT 10"
+    d: "étage 3 : les dernières erreurs du serveur"
+  - c: "SELECT * FROM system.distributed_ddl_queue ORDER BY query_create_time DESC LIMIT 5"
+    d: "une requête ON CLUSTER qui n'aboutit pas"
+quiz:
+  - q: "« Les tableaux de consommation sont figés depuis ce matin. » Les pods ClickHouse sont `Running`, le `chi` est `Completed`. Quelle est la suite ?"
+    choix:
+      - "Conclure que ClickHouse va bien et chercher côté interface"
+      - "Redémarrer les pods ClickHouse par précaution"
+      - "Passer à l'étage 3 : `system.replicas`, `system.errors`, puis les consommateurs du bus"
+    bonne: 2
+    explication: "Deux étages verts ne disent rien du troisième. Tables en lecture seule ou inserts refusés ne se voient que dans ClickHouse, puis du côté de celui qui écrit."
+  - q: "Après un changement de ressources, le `chi` reste `InProgress` depuis vingt minutes. Où regardes-tu d'abord ?"
+    choix:
+      - "L'état du pod que l'opérateur est en train de redémarrer"
+      - "Les tables système de ClickHouse sur le dernier réplica"
+      - "Les règles du Service d'entrée"
+    bonne: 0
+    explication: "L'opérateur attend qu'un hôte revienne `Ready`. C'est ce pod qui dit pourquoi : `Pending`, `ImagePullBackOff`, `OOMKilled`. Les logs de l'opérateur confirment qui il attend."
+  - q: "Un `CREATE TABLE … ON CLUSTER` ne rend jamais la main. Un des deux réplicas est arrêté pour maintenance. Le lien ?"
+    choix:
+      - "Aucun, c'est un problème de droits de l'utilisateur"
+      - "La requête attend que tous les hôtes du cluster l'aient exécutée"
+      - "La table existe déjà sur l'autre réplica"
+    bonne: 1
+    explication: "Une requête `ON CLUSTER` est déposée dans Keeper et chaque hôte doit l'exécuter. Un hôte absent la laisse en attente : `system.distributed_ddl_queue` le montre."
+  - q: "Un pod ClickHouse affiche `Last State: Terminated, OOMKilled, exit code 137`. Quel étage, quelle piste ?"
+    choix:
+      - "Étage 3 : une requête a dépassé la limite, rien à changer"
+      - "Étage 2 : l'opérateur a redémarré l'hôte pour le reconfigurer"
+      - "Étage 1 : limite mémoire du conteneur trop basse pour la charge"
+    bonne: 2
+    explication: "Le code 137 vient du noyau : le conteneur a dépassé sa limite. Le code 241 dans ClickHouse, lui, tue seulement la requête. Ce sont deux étages différents."
+---
+
+<Idee>
+Un incident ClickHouse se remonte toujours dans le même ordre : le **pod** tourne-t-il, l'**opérateur** a-t-il fini, la **base** accepte-t-elle les données ? S'arrêter au premier étage est l'erreur classique.
+</Idee>
+
+<Analogie>
+On inspecte l'entrepôt en trois temps : le **bâtiment** est-il debout, le **chef de chantier** a-t-il rendu les clés, les **camions** sont-ils vraiment déchargés ? Un bâtiment intact avec la barrière baissée ne reçoit rien.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Le symptôme :: Les tableaux de bord sont figés. Le produit répond. Personne ne sait depuis quand. :: S
+  %% scene: Étage 1 :: `kubectl get pods,pvc` : `Pending`, `ImagePullBackOff`, `OOMKilled` se lisent ici, avec `describe`. :: S>E1, E1
+  %% scene: Étage 2 :: `kubectl get chi` : `InProgress` qui dure, c'est un hôte que l'opérateur attend. `Aborted`, ses logs disent pourquoi. :: E1>E2, E2
+  %% scene: Étage 3 :: Dans ClickHouse : `system.replicas` pour la lecture seule et le retard, `system.parts`, `system.errors`, `system.disks`. :: E2>E3, E3
+  %% scene: Puis celui qui écrit :: La base va bien et rien n'arrive ? Le problème est en amont : le consommateur du bus et son retard. :: E3>W, W
+  S["<b>Tableaux figés</b><br/>le produit répond"]:::ko --> E1["<b>① Kubernetes</b><br/>get pods,pvc · describe"]:::regle
+  E1 -->|"tout est Running"| E2["<b>② Opérateur</b><br/>get chi · ses logs"]:::moteur
+  E2 -->|"Completed"| E3["<b>③ ClickHouse</b><br/>tables system.*"]:::cible
+  E3 -->|"base saine"| W["<b>Celui qui écrit</b><br/>consommateur du bus"]:::ext
+```
+
+## Les symptômes, par étage
+
+| Symptôme | Étage | Cause probable |
+|---|---|---|
+| Pod `Pending` | ① | PVC non lié, anti-affinité impossible |
+| `ImagePullBackOff` | ① | image absente du registry du client |
+| `OOMKilled`, exit 137 | ① | limite mémoire trop basse |
+| `chi` bloqué `InProgress` | ② | un hôte ne revient pas `Ready` |
+| Champ du `chi` sans effet | ② | template non cité, CRD trop ancienne |
+| `Table is in readonly mode` | ③ | Keeper injoignable ou sans majorité |
+| `Too many parts` | ③ | inserts trop petits, trop fréquents |
+| `Memory limit exceeded` (241) | ③ | requête trop lourde |
+| Réplica en retard | ③ | port 9009, disque lent |
+| `ON CLUSTER` sans fin | ③ | un hôte arrêté, Keeper lent |
+
+## Deux erreurs mémoire, deux étages
+
+<Compare>
+<Cas titre="Code 241">
+
+- Vient de ClickHouse
+- La requête est tuée
+- Le pod continue
+- Revoir la requête
+
+</Cas>
+<Cas titre="Exit 137">
+
+- Vient du noyau
+- Le pod est tué
+- Il redémarre
+- Revoir la limite
+
+</Cas>
+</Compare>
+
+## Le disque plein, à cheval sur deux étages
+
+Sans TTL, le disque se remplit lentement. ClickHouse ne peut alors plus fusionner ni insérer. `system.disks` donne l'espace libre vu par la base ; le PVC s'agrandit dans le `chi`, si la StorageClass le permet.
+
+<Terrain>
+Quand le client dit « ClickHouse est cassé », la base est souvent saine et c'est l'écriture qui s'est arrêtée en amont. Après l'étage 3, regarde le retard des consommateurs du bus.
+</Terrain>
+
+<Piege>
+Redémarrer les pods « pour voir ». Un réplica qui redémarre doit rattraper son retard, et tu perds l'état qui expliquait la panne.
+</Piege>
+
+<Retenir>
+Pod, opérateur, base, dans cet ordre, puis celui qui écrit. `readonly` pointe vers Keeper, `Too many parts` vers l'application, 137 vers la limite du pod, 241 vers la requête.
+</Retenir>

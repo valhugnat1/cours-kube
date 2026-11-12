@@ -1,0 +1,111 @@
+---
+titre: "L'opérateur : ton plan, ses objets"
+etape: 25
+ordre: 4
+objectif: "Nommer les objets que l'opérateur fabrique à partir d'un ClickHouseInstallation et dire pourquoi on ne les modifie jamais à la main."
+commandes:
+  - c: "kubectl get chi -n <ns>"
+    d: "statut de l'installation : InProgress, Completed, Aborted"
+  - c: "kubectl describe chi prod -n <ns>"
+    d: "détail et événements de la réconciliation"
+  - c: "kubectl -n kube-system logs deploy/clickhouse-operator -c clickhouse-operator"
+    d: "ce que l'opérateur est en train de faire"
+  - c: "kubectl get sts,svc,cm,pvc -n <ns>"
+    d: "tout ce qu'il a fabriqué"
+quiz:
+  - q: "Pour gagner du temps, un collègue lance `kubectl scale sts chi-prod-main-0-1 --replicas=0` afin d'arrêter un réplica. Que va-t-il se passer ?"
+    choix:
+      - "Le réplica s'arrête proprement et le `chi` se met à jour"
+      - "L'opérateur est propriétaire du StatefulSet : il défera le changement ou restera dans un état incohérent"
+      - "Kubernetes refuse la commande car l'objet est verrouillé"
+    bonne: 1
+    explication: "Règle de l'étape 2 : on agit sur le propriétaire. Tout changement passe par le `chi` ; un objet fabriqué modifié à la main sera réconcilié ou désynchronisé."
+  - q: "Un `chi` nommé `prod` déclare le cluster `main`, 1 shard, 2 réplicas. Combien de StatefulSets trouves-tu ?"
+    choix:
+      - "Deux, un par hôte, d'un pod chacun"
+      - "Un seul, avec deux pods"
+      - "Trois, en comptant celui de Keeper dans le même objet"
+    bonne: 0
+    explication: "L'opérateur crée un StatefulSet par hôte. C'est ce qui lui permet de redémarrer ou de mettre à jour un hôte à la fois, dans l'ordre qu'il choisit."
+  - q: "Quel est le pod du second réplica du premier shard, pour le `chi` `prod` et le cluster `main` ?"
+    choix:
+      - "`clickhouse-prod-1`"
+      - "`prod-main-1-0`"
+      - "`chi-prod-main-0-1-0`"
+    bonne: 2
+    explication: "Le motif est `chi-<chi>-<cluster>-<shard>-<réplica>-0`, numérotés à partir de zéro. Premier shard : 0. Second réplica : 1."
+---
+
+<Idee>
+Tu écris une seule ressource, le **ClickHouseInstallation** (`chi`). L'**opérateur**, un programme qui tourne dans le cluster, la lit et fabrique tout le reste : StatefulSets, Services, ConfigMaps, disques. Tu ne touches qu'au plan.
+</Idee>
+
+<Analogie>
+Le `chi` est le **plan de l'architecte** : « un site, deux entrepôts jumeaux, des rayonnages de 200 Gi ». L'opérateur est le **chef de chantier** : il construit, puis repasse sans cesse comparer le bâtiment au plan. Si tu déplaces une cloison toi-même, il la remet.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Tu écris le plan :: Ton chart pose un `chi` nommé `prod` : cluster `main`, 1 shard, 2 réplicas. Rien n'existe encore. :: CHI
+  %% scene: L'opérateur lit :: Le Deployment `clickhouse-operator` voit la ressource et calcule ce qu'il faut créer. :: CHI>OP, OP
+  %% scene: Un StatefulSet par hôte :: Il crée un StatefulSet d'un seul pod par réplica, avec son disque. Il pourra les redémarrer un par un. :: OP>S0, OP>S1, S0, S1
+  %% scene: Services et configuration :: Un Service par hôte, un Service d'entrée, et des ConfigMaps avec la configuration du cluster générée. :: OP>SVC, SVC
+  %% scene: Main dans le bâtiment :: Tu modifies un StatefulSet à la main : à la prochaine passe, le chef de chantier le remet conforme au plan. :: !S1, OP>S1, OP
+  CHI["<b>chi prod</b><br/>1 shard, 2 réplicas"]:::regle --> OP["<b>Opérateur</b><br/>clickhouse-operator"]:::moteur
+  OP --> S0["<b>StatefulSet + pod</b><br/>chi-prod-main-0-0"]:::cible
+  OP --> S1["<b>StatefulSet + pod</b><br/>chi-prod-main-0-1"]:::cible
+  S0 ~~~ SVC["<b>Services, ConfigMaps</b><br/>clickhouse-prod"]:::regle
+  OP --> SVC
+```
+
+## Ce qu'il fabrique
+
+Pour le `chi` `prod`, cluster `main`, 1 shard et 2 réplicas :
+
+| Objet | Nom |
+|---|---|
+| StatefulSets | `chi-prod-main-0-0` et `chi-prod-main-0-1` |
+| Pods | `chi-prod-main-0-0-0` et `chi-prod-main-0-1-0` |
+| Services par hôte | mêmes noms que les StatefulSets, ports 8123, 9000, 9009 |
+| Service d'entrée | `clickhouse-prod` |
+| ConfigMaps | `chi-prod-common-configd`, `chi-prod-common-usersd`, un par hôte |
+| PVC | un par hôte et par volume déclaré |
+
+Le dernier `-0` du nom de pod vient du StatefulSet : chaque hôte a le sien, avec un seul pod.
+
+## Pourquoi un opérateur
+
+La configuration d'un cluster ClickHouse dit qui est réplica de qui, où est Keeper, et quel nom porte chaque hôte. Elle change dès qu'on ajoute un réplica. L'opérateur la génère et la tient à jour ; un StatefulSet écrit à la main ne le ferait pas.
+
+## Deux opérateurs existent
+
+<Compare>
+<Cas titre="Altinity">
+
+- `ClickHouseInstallation`
+- API `clickhouse.altinity.com/v1`
+- Très répandu, mûr
+
+</Cas>
+<Cas titre="Officiel ClickHouse">
+
+- `ClickHouseCluster`
+- API `clickhouse.com/v1alpha1`
+- Récent, exige cert-manager
+
+</Cas>
+</Compare>
+
+Cette étape suit l'opérateur **Altinity**. Les idées se transposent à l'autre, les noms de champs non.
+
+<Terrain>
+Le statut du `chi` est ton étage 2 : `InProgress` pendant que l'opérateur travaille, `Completed` quand le bâtiment est conforme, `Aborted` si la réconciliation s'est interrompue.
+</Terrain>
+
+<Piege>
+`kubectl edit` ou `kubectl scale` sur un StatefulSet `chi-…`. Le changement est défait, ou laisse l'opérateur perdu. Tout passe par le `chi`.
+</Piege>
+
+<Retenir>
+Tu écris le `chi`, l'opérateur fabrique un StatefulSet par hôte, les Services et la configuration. On modifie le plan, jamais le bâtiment.
+</Retenir>

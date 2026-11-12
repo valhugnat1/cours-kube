@@ -1,0 +1,90 @@
+---
+titre: "Récap : ClickHouse chez un client, du plan aux données"
+etape: 25
+ordre: 80
+type: recap
+objectif: "Revoir toute l'étape sur un seul schéma : plan, opérateur, Keeper, réplicas, disques, accès, mise à jour et sauvegarde."
+---
+
+Toute l'étape tient en une phrase : tu écris **un plan**, un opérateur **construit**, et ClickHouse avec Keeper **garde les données cohérentes**. Trois acteurs, trois étages.
+
+Le fil rouge, ce sont ces **trois étages** : un pod `Running` (Kubernetes), un `chi` `Completed` (opérateur), des réplicas à jour qui acceptent les inserts (ClickHouse). Chaque étage peut être vert pendant que celui du dessus est cassé. Regarde les couleurs : le violet est ce que tu écris, l'ambre ce qui travaille pour toi, le vert ce qui porte les données. Lance le pas à pas avec ▶, ou avance avec ›.
+
+```mermaid
+flowchart TD
+  %% scene: Le plan :: Ton chart pose deux ressources : un `chk` pour Keeper et un `chi` pour ClickHouse. Rien ne tourne encore. :: CHART, CHART>CHK, CHART>CHI, CHK, CHI
+  %% scene: L'opérateur construit :: Installé une fois par cluster, après les questions au client. Il lit le plan et fabrique 3 Keeper et un StatefulSet par hôte. :: CHK>OP, CHI>OP, OP, OP>KP, OP>R0, OP>R1, KP, R0, R1
+  %% scene: Le modèle non cité :: Un `podTemplate` écrit mais absent de `defaults.templates` : image par défaut, pas de disque. Aucune erreur. :: !CHI, !OP>R0, !R0
+  %% scene: Les disques :: Un PVC par hôte, sur la StorageClass du client. Avec `reclaimPolicy: Retain`, ils survivent à la suppression du `chi`. :: R0>PVC, R1>PVC, PVC
+  %% scene: L'application entre :: Par le Service en `ClusterIP`, port 8123, avec son utilisateur dont le hash vient d'un Secret. `default` reste interne. :: APP, APP>SVC, SVC, SVC>R0, R0
+  %% scene: Par lots :: Un insert, une part. Des milliers de lignes par insert, et les fusions suivent. :: APP>SVC, SVC>R0, R0
+  %% scene: Trop de parts :: Des inserts ligne à ligne : les parts s'entassent, puis `Too many parts`. Ça se corrige chez celui qui écrit. :: !APP, !APP>SVC, !R0
+  %% scene: La réplication :: Le réplica 0 inscrit la part dans Keeper. Le réplica 1 la lit au registre et va la chercher, port 9009. :: R0>KP, KP, KP>R1, R0>R1, R1
+  %% scene: Keeper perdu :: Plus de majorité : tables en lecture seule. Les `SELECT` passent, les `INSERT` échouent. Rien n'est perdu. :: !KP, !R0>KP, !APP>SVC
+  %% scene: La mise à jour :: Le tag change dans le `chi`. L'opérateur redémarre le réplica 0, attend, puis le réplica 1. :: CHI>OP, OP>R0, R0, OP>R1, R1
+  %% scene: La sauvegarde :: Les réplicas recopient aussi les erreurs. Une copie part vers un S3 hors du cluster, et on prouve la restauration. :: R0>S3, S3
+  %% scene: Le diagnostic :: Étage 1 les pods et PVC, étage 2 le `chi` et l'opérateur, étage 3 les tables `system`. Toujours dans cet ordre. :: PVC, R0, R1, OP, KP
+  CHART["<b>Ton chart</b><br/>values du client"]:::ext --> CHK["<b>chk prod</b><br/>3 réplicas"]:::regle
+  CHART --> CHI["<b>chi prod</b><br/>1 shard × 2 réplicas"]:::regle
+  CHK --> OP["<b>Opérateur</b><br/>clickhouse-operator"]:::moteur
+  CHI --> OP
+  OP ~~~ APP["<b>Application</b><br/>utilisateur app, Secret"]:::ext
+  APP --> SVC["<b>Service</b><br/>ClusterIP · 8123"]:::regle
+  SVC --> R0["<b>Réplica 0</b><br/>chi-prod-main-0-0-0"]:::cible
+  OP --> R0
+  R0 -->|"inscrit"| KP["<b>Keeper × 3</b><br/>registre, majorité"]:::moteur
+  OP --> KP
+  KP -->|"informe"| R1["<b>Réplica 1</b><br/>chi-prod-main-0-1-0"]:::cible
+  OP --> R1
+  R0 -.->|"copie · 9009"| R1
+  R0 --> PVC["<b>PVC × 2</b><br/>Retain · classe du client"]:::regle
+  R1 --> PVC
+  R0 -->|"BACKUP"| S3["<b>Bucket S3</b><br/>hors du cluster"]:::ext
+```
+
+## Ce que tu sais faire maintenant
+
+- **Situer les quatre morceaux** et les trois étages à vérifier. [Leçon 1](/l/25-clickhouse/01-carte-clickhouse/)
+- **Expliquer parts et fusions**, et pourquoi on écrit par lots. [Leçon 2](/l/25-clickhouse/02-parts-inserts-lots/)
+- **Distinguer shard et réplica**, et dire ce que fait Keeper. [Leçon 3](/l/25-clickhouse/03-shards-replicas-keeper/)
+- **Nommer ce que l'opérateur fabrique** et n'y pas toucher. [Leçon 4](/l/25-clickhouse/04-operateur-fabrique/)
+- **Lire un `chi`** en quatre blocs. [Leçon 5](/l/25-clickhouse/05-lire-un-chi/)
+- **Régler disques, mémoire et placement.** [Leçon 6](/l/25-clickhouse/06-stockage-memoire-placement/)
+- **Ouvrir l'accès** par le bon Service et le bon utilisateur. [Leçon 7](/l/25-clickhouse/07-acces-services-utilisateurs/)
+- **Poser les bonnes questions** au client avant d'installer. [Leçon 8](/l/25-clickhouse/08-preparer-chez-le-client/)
+- **Mettre à jour** un hôte à la fois. [Leçon 9](/l/25-clickhouse/09-mettre-a-jour-operer/)
+- **Sauvegarder et le prouver.** [Leçon 10](/l/25-clickhouse/10-sauvegarder-prouver/)
+- **Diagnostiquer** dans l'ordre pod, opérateur, base. [Leçon 11](/l/25-clickhouse/11-diagnostiquer-trois-etages/)
+
+## Les mots de l'étape
+
+| Mot | En une phrase | Dans l'entrepôt |
+|---|---|---|
+| Colonnaire | Rangé par colonne, pour agréger vite. | Rangé par rayon |
+| Part | Le paquet de fichiers créé par un insert. | Une palette |
+| Fusion (merge) | Le regroupement des parts en arrière-plan. | Les caristes |
+| TTL | La durée après laquelle les lignes sont supprimées. | La date de péremption |
+| Réplica | Une copie complète sur un autre pod. | L'entrepôt jumeau |
+| Shard | Un morceau des données. | L'entrepôt régional |
+| Keeper | Le service qui coordonne les réplicas, à la majorité. | Le bureau des registres |
+| Opérateur | Le programme qui construit d'après ta ressource. | Le chef de chantier |
+| `chi` | Le ClickHouseInstallation, ta ressource. | Le plan de l'architecte |
+| `chk` | Le ClickHouseKeeperInstallation. | Le plan du bureau des registres |
+| PVC | Le disque de chaque hôte. | Le terrain et les rayonnages |
+| Service d'entrée | L'adresse stable des applications. | Le quai d'accueil |
+| `default` | L'utilisateur interne des réplicas. | Le passe de service |
+| Sauvegarde | Une copie hors du cluster, restaurée pour preuve. | Le garde-meuble d'une autre ville |
+
+## Où tu en es dans la partie F
+
+```mermaid
+flowchart TD
+  C["<b>Parties A à E</b><br/>le parcours principal"] --> F["<b>✓ Étape 25</b><br/>ClickHouse chez un client"]
+  F --> L["<b>Le lab</b><br/>opérateur et 2 réplicas sur kind"]
+```
+
+Cette étape est un cas pratique, hors du parcours principal : elle applique à une brique précise le stockage de l'étape 5, les opérateurs de l'étape 9 et le plan de données de l'étape 17. Le lab te fait monter le tout sur ton cluster kind avant de le faire chez le client.
+
+<Retenir>
+Tu écris un `chi`, l'opérateur construit, Keeper coordonne. On modifie le plan, jamais les objets fabriqués. Et on vérifie trois étages dans l'ordre : pod, opérateur, base, parce qu'un pod vert ne prouve pas que les données arrivent.
+</Retenir>

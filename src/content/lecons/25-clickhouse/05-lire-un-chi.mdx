@@ -1,0 +1,123 @@
+---
+titre: "Lire un ClickHouseInstallation en quatre blocs"
+etape: 25
+ordre: 5
+objectif: "Repérer dans un chi la topologie, Keeper, le modèle de pod et le disque, et éviter le template non référencé."
+commandes:
+  - c: "kubectl get chi prod -n <ns> -o yaml"
+    d: "la ressource telle que l'API l'a gardée"
+  - c: "kubectl explain chi.spec.templates"
+    d: "les champs que la CRD installée connaît"
+  - c: "helm template . | grep -A40 'kind: ClickHouseInstallation'"
+    d: "le chi que ton chart rend vraiment"
+quiz:
+  - q: "Tu as déclaré un `podTemplate` avec l'image du registry du client. Les pods démarrent pourtant avec une image venue de Docker Hub. Que vérifies-tu ?"
+    choix:
+      - "Que l'opérateur a bien les droits sur le namespace"
+      - "Que Keeper est joignable depuis les pods"
+      - "Que le template est référencé dans `defaults.templates`"
+    bonne: 2
+    explication: "Un template défini mais pas référencé n'est pas utilisé, sans erreur. L'opérateur prend alors son image par défaut. La référence se fait dans `defaults.templates` ou au niveau du cluster."
+  - q: "Dans un `chi`, `shardsCount: 2` et `replicasCount: 3`. Combien de pods ClickHouse l'opérateur crée-t-il ?"
+    choix:
+      - "5"
+      - "6"
+      - "3"
+    bonne: 1
+    explication: "Shards fois réplicas : 2 fois 3, soit 6 hôtes, donc 6 pods et 6 disques. Chaque shard a ses trois copies."
+  - q: "Ton `chi` n'a pas de bloc `zookeeper`. Tu crées une table `ReplicatedMergeTree`. Résultat ?"
+    choix:
+      - "La création échoue : la réplication a besoin de Keeper"
+      - "La table est répliquée par le port 9009 directement"
+      - "L'opérateur déploie un Keeper tout seul"
+    bonne: 0
+    explication: "Sans bloc `zookeeper`, ClickHouse ne sait pas où est le registre. Les tables répliquées et les requêtes `ON CLUSTER` ne peuvent pas fonctionner."
+---
+
+<Idee>
+Un `chi` se lit en quatre blocs : **combien** d'hôtes, **où** est Keeper, **à quoi ressemble** un pod, **quel disque** il reçoit. Et une règle : un modèle écrit mais pas référencé n'est pas utilisé.
+</Idee>
+
+<Analogie>
+Le plan de l'architecte a quatre pages : le **nombre d'entrepôts**, l'adresse du **bureau des registres**, la **fiche type** d'un entrepôt, et les **rayonnages**. Une fiche type glissée dans le dossier mais citée nulle part : le chef de chantier construit le modèle standard.
+</Analogie>
+
+```mermaid
+flowchart TD
+  CHI["<b>chi prod</b><br/>spec"]:::regle --> L["<b>① layout</b><br/>1 shard × 2 réplicas"]:::regle
+  CHI --> Z["<b>② zookeeper</b><br/>keeper-prod:2181"]:::regle
+  L ~~~ D["<b>defaults.templates</b><br/>cite ch et data"]:::moteur
+  CHI --> D
+  D -->|"cite"| P["<b>③ podTemplate ch</b><br/>image, ressources"]:::cible
+  D -->|"cite"| V["<b>④ volume data</b><br/>200Gi, classe fast"]:::cible
+```
+
+## Topologie et Keeper
+
+```yaml
+spec:
+  configuration:
+    zookeeper:
+      nodes:
+        - host: keeper-prod
+          port: 2181
+    clusters:
+      - name: main
+        layout:
+          shardsCount: 1
+          replicasCount: 2
+  defaults:
+    templates:
+      podTemplate: ch
+      dataVolumeClaimTemplate: data
+```
+
+- `layout` : shards fois réplicas donne le nombre de pods.
+- `zookeeper` : l'adresse de Keeper, hôte et port. Depuis l'opérateur 0.27, on peut référencer directement une installation Keeper par son nom (`zookeeper.keeper.name`).
+- `defaults.templates` : **quels** modèles s'appliquent à tous les hôtes.
+
+## Pod et disque
+
+```yaml
+  templates:
+    podTemplates:
+      - name: ch
+        spec:
+          containers:
+            - name: clickhouse
+              image: registry.client.example/clickhouse/clickhouse-server:25.8
+    volumeClaimTemplates:
+      - name: data
+        reclaimPolicy: Retain
+        spec:
+          storageClassName: fast
+          accessModes: [ReadWriteOnce]
+          resources:
+            requests:
+              storage: 200Gi
+```
+
+Un `podTemplate` contient un `spec` de pod ordinaire : image, `resources`, affinité, tolerations, `securityContext`. Tout ce que tu sais d'un pod s'y applique.
+
+## La référence, sinon rien
+
+| Ce que tu écris | Ce qui se passe |
+|---|---|
+| Template `ch` défini **et** cité dans `defaults.templates` | ✔ image du client, tes ressources |
+| Template `ch` défini, pas cité | ✘ image par défaut de l'opérateur |
+| `volumeClaimTemplates` défini, pas cité | ✘ pas de disque persistant |
+| Nom cité qui n'existe pas | ✘ même effet : le modèle n'est pas trouvé |
+
+Keeper se déclare sur le même modèle : `kind: ClickHouseKeeperInstallation`, avec `replicasCount: 3`.
+
+<Terrain>
+Dans ton chart parapluie, le `chi` est un template Helm. Les valeurs à exposer par client : registry et tag de l'image, `storageClassName`, taille du disque, `replicasCount`, ressources.
+</Terrain>
+
+<Piege>
+Un champ mal placé peut disparaître sans erreur, comme à l'étape 9. Après l'application, relis toujours `kubectl get chi -o yaml` : c'est la vérité.
+</Piege>
+
+<Retenir>
+Quatre blocs : `layout`, `zookeeper`, `podTemplates`, `volumeClaimTemplates`. Un modèle ne s'applique que s'il est cité dans `defaults.templates`. Vérifie le rendu, pas ton intention.
+</Retenir>
