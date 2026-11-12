@@ -1,0 +1,124 @@
+---
+titre: "Une table, un insert, une requête"
+etape: 25
+ordre: 2
+objectif: "Lire un CREATE TABLE ClickHouse, écrire et interroger des données, et savoir par où on se connecte."
+commandes:
+  - c: "clickhouse-client"
+    d: "le client SQL en ligne de commande, fourni dans l'image"
+  - c: "SHOW DATABASES"
+    d: "les bases ; une base s'appelle default"
+  - c: "SHOW TABLES FROM analytics"
+    d: "les tables d'une base"
+  - c: "DESCRIBE TABLE analytics.events"
+    d: "les colonnes d'une table et leur type"
+  - c: "SELECT count() FROM analytics.events"
+    d: "combien de lignes dans la table"
+quiz:
+  - q: "Tu lis `ENGINE = MergeTree ORDER BY (org, ts)` dans un `CREATE TABLE`. Que dit le `ORDER BY` ?"
+    choix:
+      - "Dans quel ordre les lignes sont rangées sur le disque, donc quels filtres seront rapides"
+      - "Que les résultats de toute requête seront triés ainsi"
+      - "Que deux lignes ne peuvent pas avoir la même organisation et la même date"
+    bonne: 0
+    explication: "C'est l'ordre de rangement sur disque. Un filtre sur `org` trouve vite sa zone. Ce n'est ni un tri des résultats ni une contrainte d'unicité."
+  - q: "Un consommateur rejoue par erreur le même lot de 1000 événements dans une table `MergeTree`. Que contient la table ?"
+    choix:
+      - "1000 lignes, les doublons sont rejetés par la clé"
+      - "Une erreur de clé dupliquée, rien n'est écrit"
+      - "2000 lignes, ClickHouse n'impose pas d'unicité"
+    bonne: 2
+    explication: "Contrairement à une clé primaire PostgreSQL, la clé de tri n'interdit pas les doublons. Éviter de rejouer deux fois est le travail de celui qui écrit."
+  - q: "Tu veux lancer une requête à la main, sur un ClickHouse qui tourne dans un pod. Le plus simple ?"
+    choix:
+      - "Installer un client PostgreSQL sur ton poste"
+      - "Ouvrir `clickhouse-client` dans le pod avec `kubectl exec`"
+      - "Lire les fichiers du volume directement"
+    bonne: 1
+    explication: "L'image contient déjà `clickhouse-client`. Un `kubectl exec` dans le pod suffit pour avoir un prompt SQL, sans rien installer."
+  - q: "Dans `SELECT org, sum(tokens) FROM events GROUP BY org`, quelles colonnes ClickHouse lit-il sur le disque ?"
+    choix:
+      - "Toutes les colonnes de la table"
+      - "Uniquement `tokens`"
+      - "Uniquement `org` et `tokens`"
+    bonne: 2
+    explication: "Il ne lit que les colonnes citées dans la requête. `ts` et `model` ne sont pas ouvertes : c'est l'intérêt du rangement par colonne."
+---
+
+<Idee>
+On utilise ClickHouse comme n'importe quelle base SQL : on crée une **table** avec des colonnes typées, on y **insère** des lignes, on l'interroge avec `SELECT`. Deux mots nouveaux seulement : le **moteur** de la table et son **ordre de rangement**.
+</Idee>
+
+<Analogie>
+Une table est un **hall** de l'entrepôt. Chaque colonne est un **rayon**. Le `ORDER BY` de la table, c'est l'**ordre de rangement** dans les rayons : rangé par organisation puis par date, on va droit à l'allée d'une organisation sans fouiller tout le hall.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Créer :: `CREATE TABLE` décrit les colonnes, leur type, le moteur et l'ordre de rangement. Le hall est vide, mais ses rayons sont en place. :: T
+  %% scene: Insérer :: Un `INSERT` apporte un paquet de lignes. ClickHouse les trie selon l'ordre de rangement et les écrit, colonne par colonne. :: I, I>T, T
+  %% scene: Interroger :: Un `SELECT` avec `GROUP BY` ne lit que les colonnes citées et renvoie quelques lignes de résultat. :: T>S, S
+  %% scene: Pas d'unicité :: Le même lot inséré deux fois donne deux fois les lignes. Aucune erreur : la clé de tri n'est pas une clé unique. :: !I, !I>T, !T
+  I["<b>INSERT</b><br/>un paquet de lignes"]:::ext --> T["<b>Table events</b><br/>ts · org · model · tokens<br/>rangée par org, ts"]:::cible
+  T --> S["<b>SELECT … GROUP BY org</b><br/>acme 1,2 M · globex 800 k"]:::ext
+```
+
+## Créer une table
+
+```sql
+CREATE DATABASE analytics;
+
+CREATE TABLE analytics.events (
+  ts     DateTime,
+  org    String,
+  model  String,
+  tokens UInt32
+)
+ENGINE = MergeTree
+ORDER BY (org, ts);
+```
+
+- **Les types** ressemblent à ceux que tu connais : `String`, `DateTime`, `UInt32` (entier positif), `Float64`.
+- **`ENGINE`**, le moteur, dit comment la table stocke ses données. `MergeTree` est le moteur standard ; presque toutes les tables l'utilisent, lui ou une variante.
+- **`ORDER BY`** est obligatoire : c'est l'ordre de rangement sur le disque.
+
+## Écrire et lire
+
+```sql
+INSERT INTO analytics.events VALUES
+  ('2026-11-12 09:00:00', 'acme',   'large'    , 1200),
+  ('2026-11-12 09:00:05', 'globex', 'small'    ,  300);
+
+SELECT org, sum(tokens) AS total
+FROM analytics.events
+WHERE ts >= now() - INTERVAL 7 DAY
+GROUP BY org
+ORDER BY total DESC;
+```
+
+C'est du SQL ordinaire. Ce qui change est dessous.
+
+| Ce que tu fais | Ce qui se passe |
+|---|---|
+| Filtrer sur `org` | ✔ rapide : c'est le début de l'ordre de rangement |
+| Additionner `tokens` | ✔ rapide : une seule colonne lue |
+| Insérer deux fois la même ligne | ✘ deux lignes, pas d'erreur |
+| `UPDATE` d'une ligne | ✘ possible mais lourd, à éviter |
+
+## Par où on lui parle
+
+- **`clickhouse-client`** : le client en ligne de commande, livré dans l'image. Dans un pod : `kubectl exec`, puis tu tapes ton SQL.
+- **HTTP, port 8123** : on envoie la requête dans un appel HTTP. C'est ce qu'utilisent la plupart des applications et des outils de tableaux de bord.
+- **Les tables `system`** : ClickHouse décrit son propre état dans des tables qu'on interroge en SQL, comme `system.tables`. On s'en servira pour tout diagnostic.
+
+<Terrain>
+Tu n'écriras pas ces tables chez un client : c'est l'application qui les crée. Mais tu dois savoir en lire une, ouvrir un client et compter des lignes pour vérifier que les données arrivent.
+</Terrain>
+
+<Piege>
+Prendre `ORDER BY` pour une clé primaire à la PostgreSQL. Il ne garantit aucune unicité : un lot rejoué est compté deux fois.
+</Piege>
+
+<Retenir>
+Une table ClickHouse, c'est des colonnes typées, un moteur (`MergeTree`) et un ordre de rangement (`ORDER BY`). On lui parle en SQL, par `clickhouse-client` ou en HTTP sur le port 8123.
+</Retenir>

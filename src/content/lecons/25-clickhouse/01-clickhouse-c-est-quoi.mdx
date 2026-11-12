@@ -1,0 +1,109 @@
+---
+titre: "ClickHouse, c'est quoi ?"
+etape: 25
+ordre: 1
+objectif: "Dire à quoi sert ClickHouse, en quoi il diffère d'une base comme PostgreSQL et ce que veut dire « colonnaire »."
+quiz:
+  - q: "La plateforme doit afficher « tokens consommés par organisation, par jour, sur 90 jours », calculé sur deux milliards d'événements. Quelle base est faite pour ça ?"
+    choix:
+      - "PostgreSQL, parce qu'il gère les transactions"
+      - "ClickHouse, parce qu'il additionne vite une colonne sur énormément de lignes"
+      - "Un cache clé-valeur, parce qu'il répond en mémoire"
+    bonne: 1
+    explication: "C'est une question d'analyse : peu de colonnes, énormément de lignes. C'est exactement le cas pour lequel une base colonnaire comme ClickHouse est conçue."
+  - q: "L'application doit retrouver le profil d'un utilisateur et modifier son adresse e-mail. Quelle base ?"
+    choix:
+      - "Une base relationnelle comme PostgreSQL"
+      - "ClickHouse, pour sa vitesse"
+      - "Les deux conviennent pareil"
+    bonne: 0
+    explication: "Retrouver une ligne précise et la modifier, c'est le métier d'une base classique. ClickHouse est lent et lourd pour modifier une ligne : il n'est pas fait pour ça."
+  - q: "Pourquoi ClickHouse calcule-t-il vite la somme d'une colonne `tokens` ?"
+    choix:
+      - "Il garde toute la base en mémoire vive"
+      - "Il a calculé toutes les sommes possibles à l'avance"
+      - "Il ne lit que cette colonne, rangée à part et bien compressée"
+    bonne: 2
+    explication: "Chaque colonne est stockée séparément. Pour une somme, il lit une seule colonne au lieu de toutes les lignes entières, et des valeurs du même type se compressent très bien."
+  - q: "ClickHouse remplace-t-il PostgreSQL dans la plateforme ?"
+    choix:
+      - "Oui, il fait tout plus vite"
+      - "Non, chacun son métier : PostgreSQL pour l'état de l'application, ClickHouse pour l'analyse"
+      - "Oui, dès qu'il y a plus d'un million de lignes"
+    bonne: 1
+    explication: "Les deux cohabitent. Utilisateurs, organisations, conversations restent en relationnel ; les événements à compter et additionner partent dans ClickHouse."
+---
+
+<Idee>
+**ClickHouse** est une base de données, comme PostgreSQL, et on lui parle aussi en SQL. Mais elle est faite pour une seule chose : **compter et additionner** très vite sur des milliards de lignes. Pas pour retrouver ou modifier une ligne précise.
+</Idee>
+
+<Analogie>
+PostgreSQL est un **classeur de bons de commande** : un bon par feuille, parfait pour retrouver la commande de Mme Martin. ClickHouse est un **entrepôt logistique** où tout est rangé par **rayon** : parfait pour un inventaire géant. On garde cet entrepôt pendant toute l'étape.
+</Analogie>
+
+## La carte de l'étape
+
+Tu n'as jamais utilisé ClickHouse : on commence donc par la base elle-même, sans Kubernetes.
+
+```mermaid
+flowchart TD
+  A["<b>① Comprendre la base</b><br/>leçons 1 à 3"]:::cible --> B["<b>② La poser sur Kubernetes</b><br/>leçons 4 à 7"]:::moteur
+  B --> C["<b>③ L'adapter au client</b><br/>leçons 8 à 10"]:::regle
+  C --> D["<b>④ La faire vivre</b><br/>leçons 11 à 13"]:::ext
+```
+
+## Ranger par ligne ou par colonne
+
+Prends des événements de consommation : une date, une organisation, un modèle, un nombre de tokens. La question : « combien de tokens au total ? »
+
+```mermaid
+flowchart TD
+  %% scene: Par ligne :: Une base classique range chaque événement en entier, l'un après l'autre. Comme un bon de commande par feuille. :: L
+  %% scene: Tout lire pour une somme :: Pour additionner les tokens, elle doit parcourir chaque ligne entière, date et organisation comprises. :: !L, !L>S1, !S1
+  %% scene: Par colonne :: ClickHouse range toutes les dates ensemble, toutes les organisations ensemble, tous les tokens ensemble. Par rayon. :: C
+  %% scene: Un seul rayon :: Pour la même somme, il ne lit que le rayon des tokens. Le reste n'est même pas ouvert. :: C>S2, S2
+  Q["<b>Question</b><br/>combien de tokens au total ?"]:::ext --> L["<b>Rangé par ligne</b><br/>date, org, modèle, tokens<br/>date, org, modèle, tokens"]:::regle
+  Q --> C["<b>Rangé par colonne</b><br/>toutes les dates<br/>tous les tokens"]:::regle
+  L --> S1["<b>Lit tout</b><br/>lent sur des milliards ✘"]:::ko
+  C --> S2["<b>Lit un seul rayon</b><br/>rapide ✔"]:::cible
+```
+
+Deuxième avantage : dans un rayon, toutes les valeurs se ressemblent (que des nombres, ou que des noms de modèles). Elles se **compressent** très bien, donc moins de disque à lire.
+
+## Ce qu'on lui demande, ce qu'on ne lui demande pas
+
+| Demande | ClickHouse |
+|---|---|
+| Tokens par organisation et par jour, sur 90 jours | ✔ son métier |
+| Nombre de conversations par modèle ce mois-ci | ✔ son métier |
+| Retrouver le profil de l'utilisateur 42 | ✘ métier de PostgreSQL |
+| Changer l'e-mail d'un utilisateur | ✘ modifier une ligne coûte cher |
+| Débiter un compte et en créditer un autre, ensemble | ✘ pas fait pour les transactions |
+
+<Compare>
+<Cas titre="PostgreSQL">
+
+- Rangé par ligne
+- Lit et modifie une ligne
+- L'état de l'application
+
+</Cas>
+<Cas titre="ClickHouse">
+
+- Rangé par colonne
+- Agrège des milliards
+- L'historique à analyser
+
+</Cas>
+</Compare>
+
+Le prix de cette vitesse : on y écrit **par gros paquets**, pas ligne à ligne, et on ne corrige presque jamais ce qui est écrit. La leçon 3 explique pourquoi.
+
+<Terrain>
+Dans la plateforme, ClickHouse reçoit les événements de consommation, les traces et les évaluations. Ce sont eux qui alimentent les tableaux de bord et la facturation. PostgreSQL garde le reste.
+</Terrain>
+
+<Retenir>
+ClickHouse est une base SQL rangée par colonne, faite pour agréger d'énormes volumes. Elle complète PostgreSQL, elle ne le remplace pas.
+</Retenir>

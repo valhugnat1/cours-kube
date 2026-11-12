@@ -35,7 +35,9 @@ const { stations, courante, compact = false } = Astro.props;
 
   .rail-h { list-style: none; padding: 0; margin: 0.25rem 0 0.75rem; display: flex; align-items: center; }
   .rail-h li { display: flex; align-items: center; margin: 0; }
-  .rail-h li + li::before { content: ''; width: 18px; height: 2px; background: var(--pin); opacity: 0.5; }
+  /* Le trait fait 18px, et se resserre quand l'étape a trop de leçons pour l'écran. */
+  .rail-h li + li { flex: 0 1 32px; min-width: 0; }
+  .rail-h li + li::before { content: ''; flex: 1 1 0; min-width: 2px; height: 2px; background: var(--pin); opacity: 0.5; }
   .rail-h .courante { box-shadow: 0 0 0 3px var(--pin-clair); }
 
   .rail-v { list-style: none; padding: 0; margin: 0.25rem 0 0; position: relative; }

@@ -10,6 +10,42 @@ Sources de cette étape : documentation de l'opérateur Altinity (`github.com/Al
 
 ---
 
+## 25.0 ClickHouse pour qui n'en a jamais utilisé
+
+ClickHouse est une **base de données SQL**, open source, comme PostgreSQL. Elle ne le remplace pas : elle fait un autre métier.
+
+| | PostgreSQL (relationnel) | ClickHouse (analytique) |
+|---|---|---|
+| Rangement sur disque | Par **ligne** : un enregistrement entier d'un bloc | Par **colonne** : chaque colonne stockée à part |
+| Fait pour | Retrouver, créer, modifier **une** ligne ; transactions | **Agréger** (compter, sommer, moyenner) sur des milliards de lignes |
+| Écritures | Ligne à ligne, modifiables | Par gros lots, quasi jamais modifiées |
+| Dans la plateforme | Utilisateurs, organisations, conversations | Événements de consommation, traces, évaluations |
+
+Pourquoi le rangement par colonne est rapide pour l'analyse : une requête comme « somme des tokens » ne lit **que** la colonne `tokens`, pas les lignes entières ; et des valeurs de même type côte à côte se **compressent** très bien, donc moins de disque à lire.
+
+**Une table** se déclare avec des colonnes typées (`String`, `DateTime`, `UInt32`, `Float64`…), un **moteur** (`ENGINE`) et un **ordre de rangement** (`ORDER BY`) :
+
+```sql
+CREATE TABLE analytics.events (
+  ts DateTime, org String, model String, tokens UInt32
+) ENGINE = MergeTree ORDER BY (org, ts);
+
+INSERT INTO analytics.events VALUES ('2026-11-12 09:00:00', 'acme', 'large', 1200);
+
+SELECT org, sum(tokens) AS total FROM analytics.events
+WHERE ts >= now() - INTERVAL 7 DAY GROUP BY org ORDER BY total DESC;
+```
+
+- `MergeTree` est le moteur standard ; presque toutes les tables l'utilisent, lui ou une variante (25.2, 25.3).
+- `ORDER BY` est l'ordre dans lequel les lignes sont rangées sur le disque : les filtres sur les premières colonnes de cette clé sont rapides. **Ce n'est pas une clé unique** : insérer deux fois la même ligne donne deux lignes, sans erreur.
+- `UPDATE` et `DELETE` d'une ligne existent mais sont lourds (25.2).
+
+**Se connecter** : `clickhouse-client` (client en ligne de commande, présent dans l'image ; `kubectl exec -it <pod> -- clickhouse-client`), ou HTTP sur le port 8123, que la plupart des applications et outils de tableaux de bord utilisent. Une base nommée `default` existe d'office. ClickHouse décrit son propre état dans des tables `system.*` (`system.tables`, `system.parts`…), interrogeables en SQL : c'est l'outil de tout diagnostic.
+
+Chez un client, ce n'est pas toi qui écris les tables : l'application les crée. Tu dois savoir en lire une, ouvrir un client et compter des lignes.
+
+---
+
 ## 25.1 ClickHouse en trois phrases, et la carte
 
 ClickHouse est une base **colonnaire** : elle range les données par colonne, ce qui rend les agrégations massives très rapides (« tokens par organisation par jour sur 90 jours ») et les modifications ligne à ligne coûteuses. On y écrit **par lots**, on y lit par agrégats.
@@ -323,6 +359,7 @@ Le piège constant : s'arrêter à l'étage 1. « Les pods sont verts » ne rép
 
 Sur le cluster kind `lab`. Environ une heure.
 
+0. **Premier contact.** Un pod seul (`kubectl run ch --image=clickhouse/clickhouse-server:25.8`), `clickhouse-client` dedans : crée la table de 25.0, insère un million de lignes avec `numbers()`, agrège, regarde `system.parts`, essaie le port 8123. Supprime le pod : sans volume, tout est perdu.
 1. **Installer l'opérateur.** `kubectl apply -f https://raw.githubusercontent.com/Altinity/clickhouse-operator/master/deploy/operator/clickhouse-operator-install-bundle.yaml`. Vérifie le Deployment dans `kube-system` et les 4 CRDs.
 2. **Keeper.** Dans un namespace `lab25`, crée un `ClickHouseKeeperInstallation` `lab` à 3 réplicas avec un volume de 1Gi. Note les noms des pods et du Service.
 3. **ClickHouse.** Crée un `ClickHouseInstallation` `lab`, cluster `main`, 1 shard, 2 réplicas, volume `data` de 1Gi avec `reclaimPolicy: Retain`, Keeper référencé. Attends `Completed`. Liste StatefulSets, pods, Services, ConfigMaps, PVC et compare avec le tableau de 25.4.
@@ -339,6 +376,8 @@ Sur le cluster kind `lab`. Environ une heure.
 
 ## Validé si…
 
+- Tu sais dire à quoi sert ClickHouse, en quoi il diffère de PostgreSQL et ce que veut dire colonnaire.
+- Tu sais lire un `CREATE TABLE` (types, moteur, `ORDER BY`), dire que `ORDER BY` n'est pas une clé unique, et ouvrir un client.
 - Tu sais dire pourquoi mille petits inserts cassent ClickHouse, et quel message d'erreur le signale.
 - Tu sais distinguer shard et réplica, et proposer une topologie de départ.
 - Tu sais ce que fait Keeper, combien il en faut, et ce que voient les applications quand il est perdu.

@@ -1,7 +1,7 @@
 ---
 titre: "Parts et fusions : pourquoi on insère par lots"
 etape: 25
-ordre: 2
+ordre: 3
 objectif: "Expliquer ce qu'est une part, pourquoi de petits inserts mènent à « Too many parts » et à quoi sert un TTL."
 commandes:
   - c: "SELECT count() FROM system.parts WHERE active AND table = 'events'"
@@ -15,7 +15,7 @@ quiz:
     choix:
       - "Rien de particulier, ClickHouse regroupe tout seul sans limite"
       - "Les parts s'accumulent plus vite que les fusions, puis les inserts sont refusés"
-      - "Keeper perd sa majorité sous la charge"
+      - "Les lectures ralentissent un peu, sans autre effet"
     bonne: 1
     explication: "Un insert crée une part. Les fusions ne suivent pas, et au-delà du seuil ClickHouse refuse avec `Too many parts`. Le remède est côté écriture : des lots."
   - q: "Les logs applicatifs montrent `Too many parts`. Un collègue propose de monter `parts_to_throw_insert`. Qu'en penses-tu ?"
@@ -27,8 +27,8 @@ quiz:
     explication: "Monter le seuil laisse encore plus de parts s'accumuler et ralentit les requêtes. La cause est dans le rythme d'écriture : grouper les lignes."
   - q: "La table des traces grossit depuis six mois et le disque est à 90 %. Qu'aurait-il fallu poser dès le départ ?"
     choix:
-      - "Un second shard pour répartir les traces"
-      - "Une table `Distributed` devant la table"
+      - "Un disque plus rapide pour les traces"
+      - "Un ordre de rangement différent pour la table"
       - "Un TTL qui supprime les données trop vieilles"
     bonne: 2
     explication: "Un TTL sur la table supprime les données périmées pendant les fusions. Sans lui, le disque se remplit lentement jusqu'au blocage."
@@ -56,7 +56,7 @@ flowchart TD
 
 ## Ce qu'est une part
 
-Le moteur de table standard s'appelle **MergeTree**. Une part est un répertoire sur le disque, trié selon la clé `ORDER BY` de la table, et qu'on ne modifie plus. Lire une table, c'est lire toutes ses parts actives : moins il y en a, plus c'est rapide.
+Tu as vu à la leçon 2 que le moteur standard s'appelle **MergeTree**. Son nom vient de là : il écrit des parts, puis les fusionne (merge). Une part est un répertoire sur le disque, trié selon la clé `ORDER BY` de la table, et qu'on ne modifie plus. Lire une table, c'est lire toutes ses parts actives : moins il y en a, plus c'est rapide.
 
 | Rythme d'écriture | Ce qui se passe |
 |---|---|

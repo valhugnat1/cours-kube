@@ -6,7 +6,7 @@ type: recap
 objectif: "Revoir toute l'étape sur un seul schéma : plan, opérateur, Keeper, réplicas, disques, accès, mise à jour et sauvegarde."
 ---
 
-Toute l'étape tient en une phrase : tu écris **un plan**, un opérateur **construit**, et ClickHouse avec Keeper **garde les données cohérentes**. Trois acteurs, trois étages.
+ClickHouse est une base SQL rangée par colonne, faite pour agréger d'énormes volumes écrits par lots. La déployer chez un client tient en une phrase : tu écris **un plan**, un opérateur **construit**, et ClickHouse avec Keeper **garde les données cohérentes**. Trois acteurs, trois étages.
 
 Le fil rouge, ce sont ces **trois étages** : un pod `Running` (Kubernetes), un `chi` `Completed` (opérateur), des réplicas à jour qui acceptent les inserts (ClickHouse). Chaque étage peut être vert pendant que celui du dessus est cassé. Regarde les couleurs : le violet est ce que tu écris, l'ambre ce qui travaille pour toi, le vert ce qui porte les données. Lance le pas à pas avec ▶, ou avance avec ›.
 
@@ -44,23 +44,27 @@ flowchart TD
 
 ## Ce que tu sais faire maintenant
 
-- **Situer les quatre morceaux** et les trois étages à vérifier. [Leçon 1](/l/25-clickhouse/01-carte-clickhouse/)
-- **Expliquer parts et fusions**, et pourquoi on écrit par lots. [Leçon 2](/l/25-clickhouse/02-parts-inserts-lots/)
-- **Distinguer shard et réplica**, et dire ce que fait Keeper. [Leçon 3](/l/25-clickhouse/03-shards-replicas-keeper/)
-- **Nommer ce que l'opérateur fabrique** et n'y pas toucher. [Leçon 4](/l/25-clickhouse/04-operateur-fabrique/)
-- **Lire un `chi`** en quatre blocs. [Leçon 5](/l/25-clickhouse/05-lire-un-chi/)
-- **Régler disques, mémoire et placement.** [Leçon 6](/l/25-clickhouse/06-stockage-memoire-placement/)
-- **Ouvrir l'accès** par le bon Service et le bon utilisateur. [Leçon 7](/l/25-clickhouse/07-acces-services-utilisateurs/)
-- **Poser les bonnes questions** au client avant d'installer. [Leçon 8](/l/25-clickhouse/08-preparer-chez-le-client/)
-- **Mettre à jour** un hôte à la fois. [Leçon 9](/l/25-clickhouse/09-mettre-a-jour-operer/)
-- **Sauvegarder et le prouver.** [Leçon 10](/l/25-clickhouse/10-sauvegarder-prouver/)
-- **Diagnostiquer** dans l'ordre pod, opérateur, base. [Leçon 11](/l/25-clickhouse/11-diagnostiquer-trois-etages/)
+- **Dire à quoi sert ClickHouse** et ce que veut dire colonnaire. [Leçon 1](/l/25-clickhouse/01-clickhouse-c-est-quoi/)
+- **Lire une table**, insérer, interroger, te connecter. [Leçon 2](/l/25-clickhouse/02-table-insert-requete/)
+- **Expliquer parts et fusions**, et pourquoi on écrit par lots. [Leçon 3](/l/25-clickhouse/03-parts-inserts-lots/)
+- **Situer les quatre morceaux** et les trois étages à vérifier. [Leçon 4](/l/25-clickhouse/04-clickhouse-sur-kubernetes/)
+- **Distinguer shard et réplica**, et dire ce que fait Keeper. [Leçon 5](/l/25-clickhouse/05-shards-replicas-keeper/)
+- **Nommer ce que l'opérateur fabrique** et n'y pas toucher. [Leçon 6](/l/25-clickhouse/06-operateur-fabrique/)
+- **Lire un `chi`** en quatre blocs. [Leçon 7](/l/25-clickhouse/07-lire-un-chi/)
+- **Régler disques, mémoire et placement.** [Leçon 8](/l/25-clickhouse/08-stockage-memoire-placement/)
+- **Ouvrir l'accès** par le bon Service et le bon utilisateur. [Leçon 9](/l/25-clickhouse/09-acces-services-utilisateurs/)
+- **Poser les bonnes questions** au client avant d'installer. [Leçon 10](/l/25-clickhouse/10-preparer-chez-le-client/)
+- **Mettre à jour** un hôte à la fois. [Leçon 11](/l/25-clickhouse/11-mettre-a-jour-operer/)
+- **Sauvegarder et le prouver.** [Leçon 12](/l/25-clickhouse/12-sauvegarder-prouver/)
+- **Diagnostiquer** dans l'ordre pod, opérateur, base. [Leçon 13](/l/25-clickhouse/13-diagnostiquer-trois-etages/)
 
 ## Les mots de l'étape
 
 | Mot | En une phrase | Dans l'entrepôt |
 |---|---|---|
 | Colonnaire | Rangé par colonne, pour agréger vite. | Rangé par rayon |
+| Table | Des colonnes typées, un moteur, un ordre de rangement. | Un hall et ses rayons |
+| `ORDER BY` | L'ordre de rangement sur le disque, pas une clé unique. | L'ordre des allées |
 | Part | Le paquet de fichiers créé par un insert. | Une palette |
 | Fusion (merge) | Le regroupement des parts en arrière-plan. | Les caristes |
 | TTL | La durée après laquelle les lignes sont supprimées. | La date de péremption |

@@ -1,7 +1,7 @@
 ---
-titre: "ClickHouse chez un client : la carte"
+titre: "ClickHouse sur Kubernetes : la carte du déploiement"
 etape: 25
-ordre: 1
+ordre: 4
 objectif: "Situer les quatre morceaux d'un ClickHouse sur Kubernetes et les trois étages où vérifier qu'il marche."
 commandes:
   - c: "kubectl get crd | grep clickhouse"
@@ -25,36 +25,36 @@ quiz:
       - "Que les inserts des applications sont acceptés"
     bonne: 0
     explication: "`Running` est l'étage 1. La réplication et les inserts se vérifient à l'étage 3, dans ClickHouse lui-même. Un pod vert peut héberger des tables en lecture seule."
-  - q: "Pourquoi une base colonnaire convient-elle à la consommation de tokens par organisation et par jour ?"
+  - q: "Dans un déploiement ClickHouse sur Kubernetes, quel morceau ne peut pas être reconstruit s'il est perdu ?"
     choix:
-      - "Elle modifie une ligne précise très vite"
-      - "Elle garantit des transactions entre plusieurs tables"
-      - "Elle agrège très vite une colonne sur des milliards de lignes"
+      - "Les pods ClickHouse"
+      - "L'opérateur"
+      - "Les disques, c'est-à-dire les PVC"
     bonne: 2
-    explication: "Ranger par colonne rend les agrégations massives rapides. Le prix : les écritures se font par lots et la modification ligne à ligne est coûteuse."
+    explication: "Pods, Services et opérateur se recréent à partir du plan. Les données, elles, ne vivent que sur les disques : c'est le seul morceau irremplaçable."
 ---
 
 <Idee>
-**ClickHouse** est la base analytique de la plateforme : elle range les données par colonne pour additionner très vite des milliards de lignes. Chez un client, tu ne la déploies pas à la main : tu écris un plan, et un **opérateur** la construit.
+Jusqu'ici, ClickHouse était un seul programme. Chez un client, il devient **quatre morceaux** dans Kubernetes : des pods, un coordinateur, des disques, et un **opérateur**, un programme qui construit le tout à partir d'un plan que tu écris.
 </Idee>
 
 <Analogie>
-Un **entrepôt logistique**. Les marchandises arrivent par **camions pleins**, sont rangées par **rayon**, et on vient y faire des inventaires géants. Toi, tu donnes le **plan de l'architecte** ; un **chef de chantier** construit et entretient. On garde cet entrepôt pendant toute l'étape.
+Tu connais maintenant l'intérieur de l'entrepôt. Reste à le **bâtir** chez le client. Tu ne poses pas les murs toi-même : tu donnes le **plan de l'architecte**, et un **chef de chantier** construit, puis entretient.
 </Analogie>
 
-## La carte de l'étape
+## La carte du déploiement
 
 ```mermaid
 flowchart TD
-  APP["<b>Applications</b><br/>par lots · leçon 2"]:::ext --> SVC["<b>Service</b><br/>l'entrée · leçon 7"]:::regle
-  SVC --> CH["<b>Pods ClickHouse</b><br/>réplicas · leçon 3"]:::cible
-  CHI["<b>chi</b><br/>le plan · leçons 4 et 5"]:::regle --> OP["<b>Opérateur</b><br/>construit · leçons 4, 8"]:::moteur
+  APP["<b>Applications</b><br/>par lots · leçon 3"]:::ext --> SVC["<b>Service</b><br/>l'entrée · leçon 9"]:::regle
+  SVC --> CH["<b>Pods ClickHouse</b><br/>réplicas · leçon 5"]:::cible
+  CHI["<b>chi</b><br/>le plan · leçons 6 et 7"]:::regle --> OP["<b>Opérateur</b><br/>construit · leçons 6, 10"]:::moteur
   OP --> CH
-  CH --> PVC["<b>PVC</b><br/>les disques · leçon 6"]:::regle
-  CH -.-|"coordonnés par"| KP["<b>Keeper</b><br/>leçon 3"]:::moteur
+  CH --> PVC["<b>PVC</b><br/>les disques · leçon 8"]:::regle
+  CH -.-|"coordonnés par"| KP["<b>Keeper</b><br/>leçon 5"]:::moteur
 ```
 
-Les leçons 9 à 11 couvrent ensuite la vie de l'ensemble : mise à jour, sauvegarde, diagnostic.
+Chaque boîte a sa leçon. Les leçons 11 à 13 couvrent ensuite la vie de l'ensemble : mise à jour, sauvegarde, diagnostic.
 
 ## Quatre morceaux
 
@@ -65,11 +65,9 @@ Les leçons 9 à 11 couvrent ensuite la vie de l'ensemble : mise à jour, sauveg
 | Opérateur | Lit ton plan, fabrique StatefulSets et Services. |
 | PVC | Les disques. La seule chose irremplaçable. |
 
-## Pourquoi « colonnaire » change tout
+## Pourquoi plusieurs morceaux
 
-Une base classique range ligne par ligne : parfait pour retrouver **une** commande. ClickHouse range colonne par colonne : parfait pour répondre à « combien de tokens par organisation, par jour, sur 90 jours ». En échange, on y écrit **par lots**, et modifier une ligne précise coûte cher.
-
-Dans la plateforme, elle reçoit les événements de consommation, les traces et les évaluations.
+Un seul pod ClickHouse suffit pour apprendre, comme aux leçons 2 et 3. Chez un client, il faut que la base survive à la perte d'une machine : on met donc **plusieurs pods** qui portent les mêmes données, et il faut quelqu'un pour les coordonner. C'est ce qui amène Keeper, puis l'opérateur, qui câble tout ce monde à ta place.
 
 ## Trois étages, trois vérifications
 

@@ -1,7 +1,7 @@
 ---
 titre: "Un réplica n'est pas une sauvegarde"
 etape: 25
-ordre: 10
+ordre: 12
 objectif: "Expliquer pourquoi la réplication ne protège pas d'une erreur, nommer deux mécanismes de sauvegarde et les trois preuves à fournir."
 commandes:
   - c: "SELECT name, status, start_time, end_time FROM system.backups"
@@ -86,7 +86,7 @@ flowchart TD
 </Cas>
 </Compare>
 
-Dans les deux cas, la destination est un stockage objet **hors du cluster**. En air-gapped, c'est le S3 du client (MinIO, Ceph), demandé à la leçon 8. Avec des tables répliquées, sauvegarder **un** réplica par shard suffit.
+Dans les deux cas, la destination est un stockage objet **hors du cluster**. En air-gapped, c'est le S3 du client (MinIO, Ceph), demandé à la leçon 10. Avec des tables répliquées, sauvegarder **un** réplica par shard suffit.
 
 ## Trois preuves, sinon rien
 
