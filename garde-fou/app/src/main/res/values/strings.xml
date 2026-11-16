@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Garde-fou</string>
+    <string name="service_description">Garde-fou regarde si Instagram (ou YouTube) est à l\'écran pour compter le temps de session, fermer l\'appli pendant les pauses et quitter les Reels / Shorts. Rien n\'est envoyé nulle part : l\'appli n\'a même pas la permission Internet.</string>
+</resources>
