@@ -1,47 +1,64 @@
-/* Cours Kube — carnet de terrain lu sur téléphone.
-   Une seule chose mémorable : le « rail » de progression (ligne + stations).
-   Tout le reste reste calme : une famille de texte (Literata), une mono pour les commandes. */
+/* Cours Kube — DA « pixel chill » (docs/da-pixel.md), la même que Limiter App.
+   Pixel pour l'identité (titres, étiquettes, boutons, chiffres), texte normal pour la lecture.
+   Trois règles pour tous les blocs : contour encre 2 px, coins coupés, ombre pleine décalée. */
 
 :root {
-  --papier: #f2f5f4;
-  --surface: #ffffff;
-  --encre: #18242b;
-  --encre-douce: #4d5c63;
-  --trait: #d3dcda;
-  --pin: #0d6650;        /* progression, validé, action */
-  --pin-clair: #dcefe8;
-  --ambre: #a3600a;      /* pièges, à revoir */
-  --ambre-clair: #fbeed6;
-  --rouge: #b3261e;
-  --rouge-clair: #fbe4e2;
-  --bleu: #1f5fbf;       /* analogies ; dans les schémas : qui appelle */
-  --bleu-clair: #e3edfb;
-  --violet: #6b3fc4;     /* terrain ; dans les schémas : la règle écrite */
-  --violet-clair: #eee8fb;
-  --code-fond: #e8eeec;
-  --rayon: 10px;
+  --papier: #f6f1e4;
+  --surface: #fff9ec;
+  --encre: #2f3550;
+  --encre-douce: #5e6379;
+  --contour: #2f3550;
+  --trait: rgb(47 53 80 / 0.16);
+  --ombre: rgb(47 53 80 / 0.2);
+  --pin: #3f7a2e;        /* progression, validé, action (herbe foncée) */
+  --pin-fort: #4f8a3c;
+  --pin-clair: #c6e5a4;
+  --mer: #6dbfc3;
+  --ambre: #8a6206;      /* à revoir */
+  --ambre-clair: #ffe19c;
+  --ambre-fort: #f2b940;
+  --rouge: #b44a3f;      /* piège, erreur */
+  --rouge-clair: #f4b4ab;
+  --rouge-fort: #e07a6e;
+  --bleu: #2f7883;       /* analogies ; dans les schémas : qui appelle */
+  --bleu-clair: #cfe8ee;
+  --violet: #6a5b94;     /* terrain ; dans les schémas : la règle écrite */
+  --violet-clair: #e4dcf0;
+  --code-fond: #efe8d6;
+  --bouton-texte: #ffffff;
+  --rayon: 0;
   --mesure: 36rem;
+  --police-pixel: 'Jersey 10', 'Literata Variable', sans-serif;
+  --police-etiquette: 'Silkscreen', 'Jersey 10', monospace;
   color-scheme: light;
 }
 
+/* Mode sombre : la palette des paysages de nuit, encre couleur de lune. */
 @media (prefers-color-scheme: dark) {
   :root {
-    --papier: #111a1e;
-    --surface: #18242a;
-    --encre: #e4ece9;
-    --encre-douce: #9fb0ab;
-    --trait: #2c3b40;
-    --pin: #5cc7a4;
-    --pin-clair: #173a31;
-    --ambre: #f0b65a;
-    --ambre-clair: #3a2c12;
-    --rouge: #f08a82;
-    --rouge-clair: #3d1d1b;
-    --bleu: #7fb0f5;
-    --bleu-clair: #182b47;
-    --violet: #b79cf5;
-    --violet-clair: #2a2147;
-    --code-fond: #1f2d33;
+    --papier: #141b33;
+    --surface: #1e2a4a;
+    --encre: #f3efcf;
+    --encre-douce: #b9b8a8;
+    --contour: rgb(243 239 207 / 0.7);
+    --trait: rgb(243 239 207 / 0.16);
+    --ombre: rgb(0 0 0 / 0.45);
+    --pin: #a8d982;
+    --pin-fort: #8cc266;
+    --pin-clair: #2c4a3c;
+    --mer: #7fd0d3;
+    --ambre: #f5cc6a;
+    --ambre-clair: #4a3e22;
+    --ambre-fort: #f2b940;
+    --rouge: #f3a197;
+    --rouge-clair: #4c2b36;
+    --rouge-fort: #e07a6e;
+    --bleu: #9ad7e0;
+    --bleu-clair: #213f5a;
+    --violet: #c9baf0;
+    --violet-clair: #372f5c;
+    --code-fond: #18223d;
+    --bouton-texte: #141b33;
     color-scheme: dark;
   }
 }
@@ -61,10 +78,11 @@ body {
 
 main { max-width: var(--mesure); margin: 0 auto; padding: 1rem 1rem 4rem; }
 
-h1, h2, h3 { line-height: 1.2; font-weight: 650; letter-spacing: -0.01em; }
-h1 { font-size: 1.75rem; margin: 0.4rem 0 0.6rem; }
-h2 { font-size: 1.25rem; margin: 2rem 0 0.5rem; }
-h3 { font-size: 1.05rem; margin: 1.5rem 0 0.4rem; }
+/* Titres en police pixel. Jersey 10 est petite à taille égale (× 1,28) et n'a qu'une graisse. */
+h1, h2, h3 { font-family: var(--police-pixel); font-weight: 400; line-height: 1.02; letter-spacing: 0.01em; }
+h1 { font-size: 2.45rem; margin: 0.5rem 0 0.6rem; }
+h2 { font-size: 1.75rem; margin: 2.1rem 0 0.5rem; }
+h3 { font-size: 1.4rem; margin: 1.6rem 0 0.4rem; }
 p { margin: 0 0 1rem; }
 a { color: var(--pin); text-underline-offset: 3px; }
 strong { font-weight: 650; }
@@ -72,49 +90,123 @@ ul, ol { padding-left: 1.25rem; margin: 0 0 1rem; }
 li { margin: 0.2rem 0; }
 
 code, pre, .mono { font-family: 'IBM Plex Mono', ui-monospace, monospace; font-size: 0.86em; }
-:not(pre) > code { background: var(--code-fond); padding: 0.08em 0.35em; border-radius: 4px; word-break: break-word; }
-pre { background: var(--code-fond) !important; padding: 0.8rem 0.9rem; border-radius: var(--rayon); overflow-x: auto; line-height: 1.5; margin: 0 0 1rem; }
+:not(pre) > code { background: var(--code-fond); padding: 0.08em 0.35em; word-break: break-word; }
+pre { background: var(--code-fond) !important; padding: 0.8rem 0.9rem; overflow-x: auto; line-height: 1.5; margin: 0 0 1rem; border: 2px solid var(--trait); }
 @media (prefers-color-scheme: dark) {
   .astro-code, .astro-code span { color: var(--shiki-dark) !important; }
 }
 
 table { border-collapse: collapse; width: 100%; font-size: 0.92rem; margin: 0 0 1rem; display: block; overflow-x: auto; }
-th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 1px solid var(--trait); vertical-align: top; }
-th { font-weight: 650; }
+th, td { text-align: left; padding: 0.45rem 0.6rem; border-bottom: 2px dotted var(--trait); vertical-align: top; }
+th { font-family: var(--police-etiquette); font-weight: 400; font-size: 0.72rem; letter-spacing: 0.04em; text-transform: uppercase; border-bottom: 2px solid var(--contour); }
 
-:focus-visible { outline: 2px solid var(--pin); outline-offset: 2px; border-radius: 4px; }
+:focus-visible { outline: 2px dashed var(--pin); outline-offset: 3px; }
 
 .discret { color: var(--encre-douce); font-size: 0.92rem; }
 
-.bouton {
-  display: block; width: 100%; text-align: center; text-decoration: none;
-  background: var(--pin); color: var(--papier); font: inherit; font-weight: 650;
-  border: 0; border-radius: var(--rayon); padding: 0.85rem 1rem; cursor: pointer;
-}
-.bouton.secondaire { background: transparent; color: var(--pin); border: 1.5px solid var(--pin); }
-.bouton[disabled] { opacity: 0.45; cursor: default; }
+/* Étiquette : petites capitales pixel. */
+.etiquette-pixel { font-family: var(--police-etiquette); font-size: 0.7rem; letter-spacing: 0.06em; text-transform: uppercase; line-height: 1.3; }
 
-/* Schémas mermaid */
+/* ------------------------------------------------------------------ Carte pixel
+   Contour encre et fond dessinés par deux pseudo-éléments aux coins coupés ; l'ombre pleine
+   est un drop-shadow sur l'élément (il n'est pas lui-même coupé, donc l'ombre suit la forme). */
+.px {
+  --coupe: 6px;
+  --bord: 2px;
+  --fond: var(--surface);
+  --trace: var(--contour);
+  --decale: 4px;
+  position: relative;
+  isolation: isolate;
+  filter: drop-shadow(var(--decale) var(--decale) 0 var(--ombre));
+}
+.px::before, .px::after { content: ''; position: absolute; z-index: -1; pointer-events: none; }
+.px::before {
+  inset: 0; background: var(--trace);
+  clip-path: polygon(var(--coupe) 0, calc(100% - var(--coupe)) 0, 100% var(--coupe), 100% calc(100% - var(--coupe)),
+    calc(100% - var(--coupe)) 100%, var(--coupe) 100%, 0 calc(100% - var(--coupe)), 0 var(--coupe));
+}
+.px::after {
+  --c: calc(var(--coupe) - var(--bord) * 0.42);
+  inset: var(--bord); background: var(--fond);
+  clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)),
+    calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
+}
+.px.sans-ombre { filter: none; }
+
+/* ------------------------------------------------------------------ Boutons pixel
+   Ombre pleine encre ; à l'appui, le bouton descend dans son ombre. */
+.bouton {
+  --coupe: 5px; --fond: var(--pin-fort); --decale: 3px; --ombre: var(--contour);
+  position: relative; isolation: isolate; filter: drop-shadow(3px 3px 0 var(--contour));
+  display: block; width: 100%; text-align: center; text-decoration: none;
+  color: var(--bouton-texte); background: none; border: 0; cursor: pointer;
+  font-family: var(--police-pixel); font-size: 1.45rem; line-height: 1.1; letter-spacing: 0.02em;
+  padding: 0.7rem 1rem 0.75rem; -webkit-tap-highlight-color: transparent;
+  transition: transform 60ms steps(1);
+}
+.bouton::before, .bouton::after { content: ''; position: absolute; z-index: -1; pointer-events: none; }
+.bouton::before {
+  inset: 0; background: var(--contour);
+  clip-path: polygon(var(--coupe) 0, calc(100% - var(--coupe)) 0, 100% var(--coupe), 100% calc(100% - var(--coupe)),
+    calc(100% - var(--coupe)) 100%, var(--coupe) 100%, 0 calc(100% - var(--coupe)), 0 var(--coupe));
+}
+.bouton::after {
+  --c: calc(var(--coupe) - 1px);
+  inset: 2px; background: var(--fond);
+  clip-path: polygon(var(--c) 0, calc(100% - var(--c)) 0, 100% var(--c), 100% calc(100% - var(--c)),
+    calc(100% - var(--c)) 100%, var(--c) 100%, 0 calc(100% - var(--c)), 0 var(--c));
+}
+@media (prefers-color-scheme: dark) { .bouton { color: #fff; --fond: #4f8a3c; } }
+.bouton:not([disabled]):active { transform: translate(3px, 3px); filter: none; }
+.bouton.secondaire { --fond: var(--surface); color: var(--encre); }
+.bouton[disabled] { opacity: 0.5; cursor: default; }
+
+/* ------------------------------------------------------------------ Paysages pixel */
+.paysage { position: relative; height: var(--hauteur, 9rem); overflow: hidden; background: #cfe8ee; touch-action: manipulation; -webkit-tap-highlight-color: transparent; cursor: pointer; }
+.paysage.sombre { background: #141b33; }
+.paysage > canvas { position: absolute; inset: 0; width: 100%; height: 100%; image-rendering: pixelated; image-rendering: crisp-edges; display: block; }
+.paysage-etiquette {
+  position: absolute; left: 0.75rem; bottom: 0.75rem; max-width: calc(100% - 1.5rem); z-index: 1;
+  background: rgb(255 249 236 / 0.86); color: #2f3550; padding: 0.4rem 0.65rem 0.45rem; pointer-events: none;
+  clip-path: polygon(4px 0, calc(100% - 4px) 0, 100% 4px, 100% calc(100% - 4px), calc(100% - 4px) 100%, 4px 100%, 0 calc(100% - 4px), 0 4px);
+}
+.paysage.sombre .paysage-etiquette { background: rgb(47 53 80 / 0.66); color: #fff9ec; }
+.paysage-etiquette p { margin: 0; }
+.paysage-titre { font-family: var(--police-etiquette); font-weight: 700; font-size: 0.85rem; letter-spacing: 0.04em; text-transform: uppercase; line-height: 1.25; }
+.paysage-sous { font-family: var(--police-pixel); font-size: 1.3rem; line-height: 1.05; margin-top: 0.1rem !important; }
+.paysage-invite { font-family: var(--police-etiquette); font-size: 0.56rem; letter-spacing: 0.05em; text-transform: uppercase; opacity: 0.8; margin-top: 0.15rem !important; }
+@media (prefers-color-scheme: dark) { .paysage:not(.sombre) > canvas { filter: brightness(0.82) saturate(0.9); } }
+
+/* Barre en cases : progression en cases séparées, pleines ou vides. */
+.cases { display: flex; gap: 2px; height: 12px; }
+.cases > i { flex: 1; background: var(--trait); }
+.cases > i.pleine { background: var(--pin-fort); }
+
+/* ------------------------------------------------------------------ Schémas mermaid */
 .schema { margin: 1.25rem -0.25rem 1.25rem; padding: 0.75rem 0.25rem; overflow-x: auto; text-align: center; }
 .schema svg { max-width: 100%; height: auto; }
-.schema .node rect, .schema .cluster rect { rx: 8px; ry: 8px; }
-pre:has(> code.language-mermaid) { color: transparent; min-height: 9rem; background: transparent !important; border: 1px dashed var(--trait); }
+.schema .node rect, .schema .cluster rect { rx: 0 !important; ry: 0 !important; }
+.schema g.node :is(rect, polygon, circle, path, ellipse) { stroke-width: 2px !important; stroke: var(--contour) !important; }
+.schema .cluster rect { stroke-dasharray: 4 3; stroke-width: 1.5px !important; }
+.schema .cluster-label, .schema .cluster span { font-family: var(--police-etiquette); font-size: 0.68rem; letter-spacing: 0.05em; text-transform: uppercase; }
+pre:has(> code.language-mermaid) { color: transparent; min-height: 9rem; background: transparent !important; border: 2px dashed var(--trait); }
 pre.schema-erreur { color: var(--encre); }
 
 /* Rôles dans les schémas : A["…"]:::role. Une couleur = un rôle, le même dans toute l'étape.
-   La légende sous le schéma est ajoutée par schemas.ts. */
-.schema g.node.ext :is(rect, polygon, circle, path, ellipse) { fill: var(--bleu-clair) !important; stroke: var(--bleu) !important; }
-.schema g.node.regle :is(rect, polygon, circle, path, ellipse) { fill: var(--violet-clair) !important; stroke: var(--violet) !important; }
-.schema g.node.moteur :is(rect, polygon, circle, path, ellipse) { fill: var(--ambre-clair) !important; stroke: var(--ambre) !important; }
-.schema g.node.cible :is(rect, polygon, circle, path, ellipse) { fill: var(--pin-clair) !important; stroke: var(--pin) !important; }
-.schema g.node.ko :is(rect, polygon, circle, path, ellipse) { fill: var(--rouge-clair) !important; stroke: var(--rouge) !important; }
-.legende { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.15rem 0.9rem; margin: 0.5rem 0 0; font-size: 0.8rem; color: var(--encre-douce); }
-.legende span::before { content: ''; display: inline-block; width: 0.7em; height: 0.7em; border-radius: 3px; margin-right: 0.35em; border: 1.5px solid var(--c); background: var(--f); }
-.legende .ext { --c: var(--bleu); --f: var(--bleu-clair); }
-.legende .regle { --c: var(--violet); --f: var(--violet-clair); }
-.legende .moteur { --c: var(--ambre); --f: var(--ambre-clair); }
-.legende .cible { --c: var(--pin); --f: var(--pin-clair); }
-.legende .ko { --c: var(--rouge); --f: var(--rouge-clair); }
+   Fond pastel, contour encre pour tous ; la légende sous le schéma est ajoutée par schemas.ts. */
+.schema g.node.ext :is(rect, polygon, circle, path, ellipse) { fill: var(--bleu-clair) !important; }
+.schema g.node.regle :is(rect, polygon, circle, path, ellipse) { fill: var(--violet-clair) !important; }
+.schema g.node.moteur :is(rect, polygon, circle, path, ellipse) { fill: var(--ambre-clair) !important; }
+.schema g.node.cible :is(rect, polygon, circle, path, ellipse) { fill: var(--pin-clair) !important; }
+.schema g.node.ko :is(rect, polygon, circle, path, ellipse) { fill: var(--rouge-clair) !important; }
+.legende { display: flex; flex-wrap: wrap; justify-content: center; gap: 0.25rem 1rem; margin: 0.6rem 0 0; font-size: 0.8rem; color: var(--encre-douce); }
+.legende span::before { content: ''; display: inline-block; width: 0.8em; height: 0.8em; margin-right: 0.4em; vertical-align: -0.05em; border: 2px solid var(--contour); background: var(--f); }
+.legende .ext { --f: var(--bleu-clair); }
+.legende .regle { --f: var(--violet-clair); }
+.legende .moteur { --f: var(--ambre-clair); }
+.legende .cible { --f: var(--pin-clair); }
+.legende .ko { --f: var(--rouge-clair); }
 
 /* Schémas animés pas à pas (src/scripts/scenes.ts) */
 .scenes { margin: 1.25rem 0; }
@@ -124,36 +216,49 @@ pre.schema-erreur { color: var(--encre); }
 .schema.anime .scene-en-cours path.flowchart-link:not(.actif),
 .schema.anime .scene-en-cours g.edgeLabel:not(.actif) { opacity: 0.16; }
 .schema.anime .scene-en-cours g.cluster:not(.actif) { opacity: 0.6; }
-.schema.anime g.node.actif :is(rect, polygon, circle, path, ellipse) { stroke-width: 2.5px !important; }
+.schema.anime g.node.actif :is(rect, polygon, circle, path, ellipse) { stroke-width: 3px !important; }
 .schema.anime g.node.actif:not(.ext, .regle, .moteur, .cible, .ko) :is(rect, polygon, circle, path, ellipse),
-.schema.anime g.cluster.actif rect { stroke: var(--pin) !important; stroke-width: 2.5px !important; fill: var(--pin-clair) !important; }
-.schema.anime g.node.alerte :is(rect, polygon, circle, path, ellipse) { stroke: var(--rouge) !important; fill: var(--rouge-clair) !important; }
+.schema.anime g.cluster.actif rect { stroke-width: 3px !important; fill: var(--pin-clair) !important; }
+.schema.anime g.node.alerte :is(rect, polygon, circle, path, ellipse) { fill: var(--rouge-clair) !important; stroke: var(--rouge) !important; }
 .schema.anime path.flowchart-link.actif { stroke: var(--pin) !important; stroke-width: 2.5px !important; }
 .schema.anime path.flowchart-link.alerte { stroke: var(--rouge) !important; }
-.schema.anime .jeton { fill: var(--pin); stroke: var(--papier); stroke-width: 1.5px; }
-.schema.anime .jeton.alerte { fill: var(--rouge); }
+/* Les jetons qui circulent : des carrés, pas des ronds. */
+.schema.anime .jeton { fill: var(--ambre-fort); stroke: var(--contour); stroke-width: 1.5px; }
+.schema.anime .jeton.alerte { fill: var(--rouge-fort); }
 
 .scene-barre {
-  position: sticky; bottom: 0; z-index: 4;
-  background: var(--surface); border: 1.5px solid var(--pin); border-radius: 14px;
-  padding: 0.6rem 0.75rem 0.5rem; box-shadow: 0 -6px 18px -10px rgb(0 0 0 / 0.35);
+  --fond: var(--surface);
+  position: sticky; bottom: 0.5rem; z-index: 4;
+  padding: 0.65rem 0.8rem 0.6rem;
 }
-.scene-texte { margin: 0 0 0.4rem; font-size: 0.95rem; line-height: 1.45; min-height: 4.3em; }
-.scene-num { display: inline-block; font-size: 0.78rem; font-weight: 650; color: var(--pin); background: var(--pin-clair); border-radius: 999px; padding: 0 0.55em; margin-right: 0.2em; }
-.scene-commandes { display: flex; align-items: center; gap: 0.4rem; }
+.scene-texte { margin: 0 0 0.45rem; font-size: 0.95rem; line-height: 1.45; min-height: 4.3em; }
+.scene-num { display: inline-block; font-family: var(--police-pixel); font-size: 1.05rem; line-height: 1.2; color: var(--encre); background: var(--ambre-clair); padding: 0 0.4em; margin-right: 0.2em; }
+.scene-commandes { display: flex; align-items: center; gap: 0.45rem; }
 .scene-commandes > button {
-  flex: none; width: 2.6rem; height: 2.4rem; border-radius: var(--rayon); font: inherit; font-size: 1.15rem; line-height: 1;
-  background: transparent; color: var(--pin); border: 1.5px solid var(--pin); cursor: pointer;
+  flex: none; width: 2.6rem; height: 2.4rem; font-family: var(--police-pixel); font-size: 1.5rem; line-height: 1;
+  background: var(--surface); color: var(--encre); border: 2px solid var(--contour); cursor: pointer;
+  box-shadow: 3px 3px 0 var(--contour); -webkit-tap-highlight-color: transparent;
 }
-.scene-commandes > .scene-lecture { background: var(--pin); color: var(--papier); }
+.scene-commandes > button:not(:disabled):active { transform: translate(3px, 3px); box-shadow: none; }
+.scene-commandes > .scene-lecture { background: var(--pin-fort); color: #fff; }
 .scene-commandes > button:disabled { opacity: 0.35; cursor: default; }
-.scene-points { flex: 1; display: flex; justify-content: center; flex-wrap: wrap; gap: 0.2rem 0.22rem; list-style: none; padding: 0; margin: 0; }
+.scene-points { flex: 1; display: flex; justify-content: center; flex-wrap: wrap; gap: 0.25rem 0.25rem; list-style: none; padding: 0; margin: 0; }
 .scene-points li { margin: 0; display: flex; }
-.scene-points button { width: 10px; height: 10px; padding: 0; border-radius: 50%; border: 2px solid var(--pin); background: transparent; cursor: pointer; }
-.scene-points button.vu { background: var(--pin); }
-.scene-points button[aria-current='true'] { box-shadow: 0 0 0 3px var(--pin-clair); }
+.scene-points button { width: 10px; height: 10px; padding: 0; border: 2px solid var(--contour); background: transparent; cursor: pointer; }
+.scene-points button.vu { background: var(--mer); }
+.scene-points button[aria-current='true'] { background: var(--ambre-fort); outline: 2px solid var(--ambre-fort); outline-offset: 1px; }
 
 @media (prefers-reduced-motion: no-preference) {
-  .rail-station.vient-detre-lu { animation: pulse 900ms ease-out 1; }
+  .rail-station.vient-detre-lu { animation: pulse 900ms steps(4) 1; }
   @keyframes pulse { 0% { transform: scale(1.6); } 100% { transform: scale(1); } }
 }
+
+/* ------------------------------------------------------------------ Encadrés des leçons
+   Idee, Analogie, Terrain, Piege, Retenir : une carte pixel, fond de la couleur du rôle,
+   titre en petites capitales pixel précédé d'un carré de légende. */
+.encart { padding: 0.8rem 1rem 0.15rem; margin: 1.4rem 0; }
+.encart-titre {
+  display: flex; align-items: center; gap: 0.45rem; margin: 0 0 0.35rem;
+  font-family: var(--police-etiquette); font-weight: 700; font-size: 0.72rem; letter-spacing: 0.06em; text-transform: uppercase; line-height: 1.3;
+}
+.encart-titre::before { content: ''; flex: none; width: 10px; height: 10px; background: var(--carre); border: 2px solid var(--contour); }

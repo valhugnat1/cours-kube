@@ -28,27 +28,29 @@ const { stations, courante, compact = false } = Astro.props;
 )}
 <style>
   .visuellement-cache { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
-  .rail-station { display: inline-block; width: 14px; height: 14px; border-radius: 50%; border: 2px solid var(--pin); background: var(--papier); flex: none; }
-  :global(.rail-station.lue) { background: var(--pin); }
-  /* Le récap de fin d'étape : une station carrée, comme un terminus. */
-  .rail-station.recap { border-radius: 3px; }
+  /* Stations en carrés pixel : vide = contour, lu = rempli herbe, récap = carré doré. */
+  .rail-station { display: inline-block; width: 14px; height: 14px; border: 2px solid var(--contour); background: var(--surface); flex: none; }
+  :global(.rail-station.lue) { background: var(--pin-fort); }
+  .rail-station.recap { width: 16px; height: 16px; background: var(--ambre-clair); }
+  :global(.rail-station.recap.lue) { background: var(--ambre-fort); }
 
-  .rail-h { list-style: none; padding: 0; margin: 0.25rem 0 0.75rem; display: flex; align-items: center; }
+  .rail-h { list-style: none; padding: 0; margin: 0.4rem 0 0.75rem; display: flex; align-items: center; }
   .rail-h li { display: flex; align-items: center; margin: 0; }
-  /* Le trait fait 18px, et se resserre quand l'étape a trop de leçons pour l'écran. */
+  /* Le trait (pointillés pixel) fait 32px, et se resserre quand l'étape a trop de leçons pour l'écran. */
   .rail-h li + li { flex: 0 1 32px; min-width: 0; }
-  .rail-h li + li::before { content: ''; flex: 1 1 0; min-width: 2px; height: 2px; background: var(--pin); opacity: 0.5; }
-  .rail-h .courante { box-shadow: 0 0 0 3px var(--pin-clair); }
+  .rail-h li + li::before { content: ''; flex: 1 1 0; min-width: 2px; height: 2px; background: repeating-linear-gradient(90deg, var(--contour) 0 2px, transparent 2px 4px); opacity: 0.55; }
+  .rail-h .courante { outline: 2px solid var(--ambre-fort); outline-offset: 2px; }
 
-  .rail-v { list-style: none; padding: 0; margin: 0.25rem 0 0; position: relative; }
+  .rail-v { list-style: none; padding: 0; margin: 0.35rem 0 0; position: relative; }
   .rail-v li { position: relative; display: flex; align-items: baseline; gap: 0.75rem; padding: 0.35rem 0; margin: 0; }
-  .rail-v li:not(:last-child)::after { content: ''; position: absolute; left: 6px; top: 1.35rem; bottom: -0.6rem; width: 2px; background: var(--pin); opacity: 0.35; }
+  .rail-v li:not(:last-child)::after { content: ''; position: absolute; left: 6px; top: 1.4rem; bottom: -0.55rem; width: 2px; background: repeating-linear-gradient(180deg, var(--contour) 0 2px, transparent 2px 4px); opacity: 0.45; }
+  .rail-v li.recap:not(:last-child)::after { left: 7px; }
   .rail-v .rail-station { transform: translateY(2px); }
   .rail-v a { color: var(--encre); text-decoration: none; }
   .rail-v li.lab .rail-station { border-style: dashed; border-color: var(--encre-douce); }
   .rail-v li.lab a { color: var(--encre-douce); }
   .rail-v li.recap a { font-weight: 650; }
-  .etiquette { font-size: 0.75rem; color: var(--encre-douce); border: 1px solid var(--trait); border-radius: 999px; padding: 0 0.5em; white-space: nowrap; }
+  .etiquette { font-family: var(--police-etiquette); font-size: 0.56rem; letter-spacing: 0.05em; text-transform: uppercase; color: var(--encre-douce); border: 2px solid var(--trait); padding: 0.1em 0.45em; white-space: nowrap; }
 </style>
 <script>
   import { lire, estLue } from '../scripts/progression';

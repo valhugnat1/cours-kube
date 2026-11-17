@@ -1,4 +1,5 @@
 // Rend les blocs ```mermaid des leçons en schémas, aux couleurs du site (clair/sombre).
+// Les variables passées à mermaid doivent rester en hex (pas de rgb() à espaces, qu'il ne lit pas).
 // Un bloc qui contient des lignes « %% scene: » devient un schéma animé pas à pas (scenes.ts).
 
 import { animer } from './scenes';
@@ -26,22 +27,22 @@ export async function rendreSchemas() {
       fontSize: '16px',
       background: v('--papier'),
       primaryColor: v('--surface'),
-      primaryBorderColor: v('--pin'),
+      primaryBorderColor: v('--encre'),
       primaryTextColor: v('--encre'),
       secondaryColor: v('--pin-clair'),
-      secondaryBorderColor: v('--pin'),
+      secondaryBorderColor: v('--encre'),
       tertiaryColor: v('--ambre-clair'),
-      tertiaryBorderColor: v('--ambre'),
+      tertiaryBorderColor: v('--encre'),
       lineColor: v('--encre-douce'),
       textColor: v('--encre'),
       clusterBkg: v('--papier'),
-      clusterBorder: v('--trait'),
+      clusterBorder: v('--encre-douce'),
       edgeLabelBackground: v('--papier'),
       noteBkgColor: v('--ambre-clair'),
-      noteBorderColor: v('--ambre'),
+      noteBorderColor: v('--encre'),
       noteTextColor: v('--encre'),
       actorBkg: v('--surface'),
-      actorBorder: v('--pin'),
+      actorBorder: v('--encre'),
       signalColor: v('--encre'),
     },
   });

@@ -44,7 +44,7 @@ export function animer(figure: HTMLElement, source: string) {
   bloc.append(figure);
   figure.classList.add('anime');
   const barre = document.createElement('div');
-  barre.className = 'scene-barre';
+  barre.className = 'scene-barre px';
   barre.setAttribute('role', 'group');
   barre.setAttribute('aria-label', 'Schéma pas à pas');
   barre.innerHTML = `
@@ -94,8 +94,9 @@ export function animer(figure: HTMLElement, source: string) {
     if (!p.id) return [];
     const duree = Math.min(2.4, Math.max(1.1, p.getTotalLength() / 110));
     return [0, 0.5].map((decalage) => {
-      const c = document.createElementNS(SVG, 'circle');
-      c.setAttribute('r', '5');
+      // Un jeton carré (DA pixel), centré sur le chemin.
+      const c = document.createElementNS(SVG, 'rect');
+      for (const [k, v] of [['x', '-5'], ['y', '-5'], ['width', '10'], ['height', '10']]) c.setAttribute(k, v);
       c.setAttribute('class', alerte ? 'jeton alerte' : 'jeton');
       const a = document.createElementNS(SVG, 'animateMotion');
       a.setAttribute('dur', `${duree}s`);

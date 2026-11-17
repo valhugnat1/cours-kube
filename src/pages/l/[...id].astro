@@ -10,6 +10,8 @@ import Analogie from '../../components/Analogie.astro';
 import Terrain from '../../components/Terrain.astro';
 import Compare from '../../components/Compare.astro';
 import Cas from '../../components/Cas.astro';
+import Paysage from '../../components/Paysage.astro';
+import { paysageDePartie } from '../../data/paysages';
 import { render } from 'astro:content';
 import { toutesLesLecons, urlLecon, questionsDe, estDuParcours, type Lecon } from '../../data/lecons';
 import { etapeParNumero } from '../../data/etapes';
@@ -36,9 +38,10 @@ const libelleSuivante = suivante?.data.type === 'recap' ? 'Pour finir l\u2019ét
 const derniereSansRecap = d.type === 'lecon' && rang === nbLecons && suivante?.data.type !== 'recap';
 const finDePartie = !suivante || etapeParNumero(suivante.data.etape).partie !== etape.partie;
 const lab = memeEtape.find((l) => l.data.type === 'lab');
+const scene = paysageDePartie[etape.partie];
 ---
 <Base titre={d.titre} retour={{ href: `/#etape-${d.etape}`, texte: 'Parcours' }}>
-  <p class="contexte">Étape {d.etape}, {etape.titre.toLowerCase()}</p>
+  <Paysage scene={scene} hauteur="7.5rem" class="bandeau" titre={`Étape ${d.etape} · partie ${etape.partie}`} sousTitre={etape.titre} />
   <Rail stations={stations} courante={lecon.id} compact />
 
   <h1>{d.titre}</h1>
@@ -62,7 +65,7 @@ const lab = memeEtape.find((l) => l.data.type === 'lab');
         data-oui="Leçon validée. Tu peux refaire le quiz quand tu veux.">
         Réponds juste à chaque question pour valider la leçon. Celles que tu rates reviennent en fin de série.
       </p>
-      <Quiz id="quiz-lecon" questions={questionsDe(lecon)} maitrise />
+      <Quiz id="quiz-lecon" questions={questionsDe(lecon)} maitrise paysage={scene} />
     </section>
   )}
 
@@ -87,13 +90,14 @@ const lab = memeEtape.find((l) => l.data.type === 'lab');
 </Base>
 
 <style>
-  .contexte { margin: 0.5rem 0 0; color: var(--encre-douce); font-size: 0.92rem; }
-  .bandeau-lab { background: var(--surface); border: 1.5px dashed var(--encre-douce); border-radius: var(--rayon); padding: 0.6rem 0.8rem; font-size: 0.95rem; }
+  :global(.bandeau) { margin: -1rem -1rem 0.6rem; border-bottom: 2px solid var(--contour); }
+  @media (min-width: 40rem) { :global(.bandeau) { margin: 0 0 0.6rem; border: 2px solid var(--contour); box-shadow: 4px 4px 0 var(--ombre); } }
+  .bandeau-lab { background: var(--surface); border: 2px dashed var(--contour); padding: 0.6rem 0.8rem; font-size: 0.95rem; }
   .contenu { margin-top: 1.25rem; }
   .verifier { margin-top: 2rem; }
   .consigne { margin-top: -0.2rem; }
-  .suite { display: grid; gap: 0.6rem; margin-top: 2rem; }
-  .lien-lab { text-align: center; color: var(--encre-douce); font-size: 0.95rem; margin-top: 0.4rem; }
+  .suite { display: grid; gap: 0.9rem; margin-top: 2rem; }
+  .lien-lab { text-align: center; color: var(--encre-douce); font-family: var(--police-pixel); font-size: 1.25rem; margin-top: 0.4rem; }
   .marquer { margin-top: 2rem; }
 </style>
 <script>

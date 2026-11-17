@@ -1,0 +1,32 @@
+---
+// Un paysage pixel animé (DA « pixel chill », docs/da-pixel.md). On le touche, il réagit.
+// etiquette : titre (et sous-titre) posés sur une étiquette crème, lisibles sur tous les fonds.
+import { SCENES, type NomScene } from '../scripts/pixel/scenes';
+interface Props {
+  scene: NomScene;
+  hauteur?: string;
+  titre?: string;
+  sousTitre?: string;
+  invite?: boolean;
+  largeur?: number;
+  fete?: boolean;
+  class?: string;
+}
+const { scene, hauteur = '9rem', titre, sousTitre, invite = false, largeur = 90, fete = false, class: classe } = Astro.props;
+const info = SCENES[scene];
+---
+<div class:list={['paysage', classe, { sombre: info.sombre }]} data-paysage={scene} data-largeur={largeur}
+  data-fete={fete ? '' : undefined} style={`--hauteur:${hauteur}`}>
+  {(titre || invite) && (
+    <div class="paysage-etiquette">
+      {titre && <p class="paysage-titre">{titre}</p>}
+      {sousTitre && <p class="paysage-sous">{sousTitre}</p>}
+      {invite && <p class="paysage-invite">{info.titre} · {info.invite}</p>}
+    </div>
+  )}
+  <slot />
+</div>
+<script>
+  import { monterPaysages } from '../scripts/paysages';
+  monterPaysages();
+</script>
