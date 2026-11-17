@@ -12,11 +12,10 @@ const ordre = (await toutesLesLecons())
   .map((l) => ({ id: l.id, titre: l.data.titre, url: urlLecon(l), etape: l.data.etape, recap: l.data.type === 'recap' }));
 const premiere = ordre[0];
 const nbLecons = ordre.filter((l) => !l.recap).length;
-// Scène du jour de chaque étape (celle de sa partie) : l'accueil montre celle où tu en es.
-const sceneParEtape = Object.fromEntries(parties.flatMap((p) => p.etapes.map((e) => [e.n, paysageDePartie[p.id]])));
+
 ---
 <Base titre="Parcours">
-  <section class="accueil" data-ordre={JSON.stringify(ordre)} data-scenes={JSON.stringify(sceneParEtape)}>
+  <section class="accueil" data-ordre={JSON.stringify(ordre)}>
     <div class="paysage hero" data-largeur="96" style="--hauteur:13.5rem" data-hero>
       <div class="hero-carte">
         <p class="etiquette-pixel">Ton parcours</p>
@@ -116,7 +115,6 @@ const sceneParEtape = Object.fromEntries(parties.flatMap((p) => p.etapes.map((e)
   import { lire, aRevoir, estLue } from '../scripts/progression';
   import { monterPaysages, sceneDuMoment, SCENES } from '../scripts/paysages';
   const racine = document.querySelector<HTMLElement>('[data-ordre]')!;
-  const scenes: Record<number, keyof typeof SCENES> = JSON.parse(racine.dataset.scenes!);
   const ordre: { id: string; titre: string; url: string; etape: number; recap: boolean }[] = JSON.parse(racine.dataset.ordre!);
   const lecons = ordre.filter((l) => !l.recap);
 
@@ -160,10 +158,8 @@ const sceneParEtape = Object.fromEntries(parties.flatMap((p) => p.etapes.map((e)
   document.addEventListener('progression', maj);
   maj();
 
-  // Le paysage d'accueil suit le soleil (comme dans l'appli) : le jour, celui de la partie où tu en es.
-  const e0 = lire();
-  const ici = ordre.find((l) => !estLue(e0, l.id)) ?? ordre[ordre.length - 1];
-  const scene = sceneDuMoment(scenes[ici?.etape ?? 0] ?? 'montagne');
+  // Le paysage d'accueil suit le soleil (comme dans l'appli) : grand large le jour, aube, puis nuit.
+  const scene = sceneDuMoment();
   const hero = document.querySelector<HTMLElement>('[data-hero]')!;
   hero.dataset.paysage = scene;
   hero.classList.toggle('sombre', SCENES[scene].sombre);

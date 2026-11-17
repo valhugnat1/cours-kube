@@ -142,10 +142,10 @@ export function momentDuJour(d = new Date()): Moment {
   return min > lever && min < coucher ? 'jour' : 'nuit';
 }
 
-/** Choisit la scène de l'accueil : celle de la partie en cours le jour, l'aube au crépuscule, la nuit sinon. */
-export function sceneDuMoment(sceneDuJour: NomScene): NomScene {
+/** Choisit la scène de l'accueil : le grand large le jour (aucune partie ne l'utilise), l'aube au crépuscule, la nuit sinon. */
+export function sceneDuMoment(): NomScene {
   const m = momentDuJour();
-  if (m === 'jour') return sceneDuJour;
+  if (m === 'jour') return 'ocean';
   if (m === 'crepuscule') return 'aube';
   return new Date().getDate() % 2 ? 'lucioles' : 'aurore';
 }

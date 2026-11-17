@@ -4,7 +4,7 @@
 import { Toile, type Touche, bayer, hasard, r, sin, cos, abs, floor, max, min, sqrt, PI, clamp, crete } from './toile';
 
 type Dessin = (tl: Toile, t: number, touches: Touche[]) => void;
-export type NomScene = 'mer' | 'prairie' | 'lucioles' | 'pluie' | 'montagne' | 'foret' | 'aube' | 'aurore';
+export type NomScene = 'ocean' | 'mer' | 'prairie' | 'lucioles' | 'pluie' | 'montagne' | 'foret' | 'aube' | 'aurore';
 
 // ------------------------------------------------------------------ Mer
 
@@ -379,6 +379,59 @@ const aube: Dessin = (tl, t, touches) => {
   }
 };
 
+// ------------------------------------------------------------------ Grand large
+
+const ocean: Dessin = (tl, t, touches) => {
+  const { w, h, u } = tl;
+  const ts = t, horizon = r(h * 0.4);
+
+  tl.degrade(0, horizon, [0x8fcdee, 0xb4ddf2, 0xd6ecf5]);
+  tl.nuage(((ts * 0.9) % (w + u * 0.6)) - u * 0.3, h * 0.12, u * 0.08);
+  tl.nuage(((ts * 0.5 + w * 0.5) % (w + u * 0.5)) - u * 0.25, h * 0.25, u * 0.05);
+  tl.oiseaux(ts, 2, horizon * 0.7, 0x5e6b7a, 3);
+  // Petite île avec un phare, au loin.
+  const x0 = w * 0.66, x1 = w * 0.88;
+  let sommetX = 0, sommetY = horizon;
+  for (let x = r(x0); x <= r(x1); x++) {
+    const haut = r(sin(((x - x0) / (x1 - x0)) * PI) * u * 0.05);
+    for (let y = horizon - haut; y < horizon; y++) tl.pt(x, y, y === horizon - haut ? 0x6fa07a : 0x4f8a6a);
+    if (horizon - haut < sommetY) { sommetY = horizon - haut; sommetX = x; }
+  }
+  for (let k = 0; k < 4; k++) tl.pt(sommetX, sommetY - 1 - k, k % 2 === 0 ? 0xffffff : 0xd9604e);
+  tl.pt(sommetX, sommetY - 5, 0xffe7a0);
+  // Houle.
+  const mers = [0x3e8db8, 0x337daa, 0x286c98, 0x1f5b85];
+  for (let y = horizon; y < h; y++) {
+    const f = (y - horizon) / (h - horizon);
+    const fi = f * (mers.length - 1);
+    const i0 = min(Math.trunc(fi), mers.length - 2);
+    for (let x = 0; x < w; x++) {
+      let c = fi - i0 > bayer(x, y) ? mers[i0 + 1] : mers[i0];
+      const v = sin((x * 0.3) / (0.3 + f) + ts * 0.9 + y * 1.9) + sin(x * 0.09 - ts * 0.5 + y * 0.7);
+      if (v > 1.45) c = 0x9cd0e6;
+      else if (v > 1.2 && f > 0.25) c = 0x5fa6cb;
+      tl.pt(x, y, c);
+    }
+  }
+  // Une baleine montre sa queue de temps en temps.
+  const cycle = Math.trunc(ts / 14), phase = (ts % 14) / 14;
+  if (phase < 0.35) {
+    const monte = sin((phase / 0.35) * PI);
+    const bx = r(w * 0.15 + hasard(cycle + 900) * w * 0.5);
+    const by = r(horizon + (h - horizon) * 0.3);
+    const haut = r(monte * u * 0.09);
+    const c = 0x2c4459;
+    tl.rect(bx, by - haut, 2, haut, c);
+    if (haut > 2) {
+      tl.rect(bx - 3, by - haut, 8, 1, c);
+      tl.pt(bx - 4, by - haut - 1, c);
+      tl.pt(bx + 5, by - haut - 1, c);
+    }
+    if (monte > 0.7) for (let k = 0; k < 6; k++) tl.pt(bx - 3 + k * 2, by - r(hasard(k + cycle) * 3), 0xe6f4fa);
+  }
+  tl.ronds(touches, t, 0xa8d8ec, (x, y) => y > horizon && x >= 0 && x < w);
+};
+
 // ------------------------------------------------------------------ Aurore boréale
 
 const aurore: Dessin = (tl, t, touches) => {
@@ -412,6 +465,7 @@ const aurore: Dessin = (tl, t, touches) => {
 export type InfoScene = { titre: string; invite: string; sombre: boolean; dessin: Dessin; touche: [number, number] };
 
 export const SCENES: Record<NomScene, InfoScene> = {
+  ocean: { titre: 'Grand large', invite: 'touche l’océan pour faire des ronds', sombre: false, dessin: ocean, touche: [0.4, 0.7] },
   mer: { titre: 'Matin au bord de mer', invite: 'touche l’eau pour faire des ronds', sombre: false, dessin: mer, touche: [0.62, 0.6] },
   prairie: { titre: 'Brise sur la prairie', invite: 'touche l’herbe pour faire souffler le vent', sombre: false, dessin: prairie, touche: [0.25, 0.72] },
   pluie: { titre: 'Pluie sur le lac', invite: 'touche le lac pour faire des ronds', sombre: false, dessin: pluie, touche: [0.5, 0.7] },
