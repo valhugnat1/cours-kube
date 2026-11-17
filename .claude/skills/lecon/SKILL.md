@@ -18,7 +18,21 @@ Traite les étapes **une par une**, dans l'ordre, et fais tout le travail sans p
 
 **Source absente** (étapes 23 et 24 notamment) : écris d'abord `sources/etape-NN-<slug>.md` dans le même format que les autres sources (Objectif, sections numérotées NN.1, NN.2…, Exercice clavier en main, Validé si…, Étape suivante), à partir de la ligne du plan et de recherches web sur la doc officielle (Kubernetes, Helm, ArgoCD, Flux, Velero, CNCF pour CKAD/CKA). Pour l'étape 23, appuie-toi aussi sur ce que disent déjà les sources des étapes 11 à 22 pour les réponses aux questions client : ne réponds jamais à leur place par une affirmation non sourcée, écris « à vérifier pour ton produit » quand c'est spécifique. Signale-le en tête de la PR.
 
-## 2. La méthode pédagogique
+## 2. Le niveau de détail : architecte, pas opérateur
+
+Hugo est **solution architect**, pas ingénieur de déploiement. Il veut comprendre l'infrastructure : ce qui se passe, qui fait quoi, les mécanismes, ce qui change d'un client à l'autre, et les questions à poser. Il veut lire vite. À partir de l'étape 5, c'est la règle pour toutes les étapes :
+
+- **Le mécanisme avant l'option.** Explique comment ça marche et pourquoi, pas la liste des champs. Une option n'a sa place que si elle change une décision d'architecture ou explique une panne qu'il verra chez un client (`ReadWriteMany` oui ; chaque verbe RBAC, non).
+- **Pas d'inventaire exhaustif.** Les tableaux de la source qui listent toutes les variantes se réduisent aux 3 à 5 lignes qui comptent. Un détail de syntaxe, un flag, une valeur par défaut secondaire : on coupe.
+- **Moins de leçons, plus courtes.** Vise **4 à 6 leçons** par étape et **200 à 380 mots** par leçon. Fusionne les sous-sections proches plutôt que de tout couvrir.
+- **YAML rare.** Un bloc seulement s'il fait voir le mécanisme d'un coup d'œil (10 lignes au plus). Le schéma est préféré au code.
+- **Quiz de compréhension.** Questions de situation (« chez ce client, que se passe-t-il, que demandes-tu ? »), jamais sur un nom de champ ou une syntaxe.
+- **Le lab reste optionnel et court** : 4 à 6 manipulations, celles qui font *voir* un mécanisme.
+- **Commandes** : 0 à 3 par leçon, celles qui servent à constater (`get`, `describe`, `auth can-i`), pas à configurer.
+
+La fidélité à la source reste la règle : on coupe et on simplifie, on n'invente rien.
+
+## 3. La méthode pédagogique
 
 Hugo apprend par l'image. Une leçon ne suppose aucun prérequis en dehors des leçons précédentes, et suit toujours le même mouvement : **le dire simplement, le faire voir, puis seulement détailler**.
 
@@ -36,18 +50,18 @@ Au niveau de l'étape :
 - **Le fil rouge.** Cherche le motif qui revient dans l'étape et fais-le voir par les couleurs (étape 4 : une règle écrite ne fait rien sans quelqu'un qui l'applique). Nomme-le dans le récap.
 - **Le glossaire** dans le récap : « Les mots de l'étape », un tableau mot, une phrase, équivalent dans l'analogie.
 
-## 3. Découper
+## 4. Découper
 
 Fais un plan avant d'écrire : l'**univers d'analogie** de l'étape et la table de correspondance (objet technique, équivalent), puis une liste de leçons, chacune avec un titre, **l'unique idée** qu'elle transmet (c'est son `<Idee>`) et son image.
 
-- Visée : 4 à 10 leçons par étape. Une sous-section de la source ≈ une leçon ; une sous-section dense se coupe en deux ; deux petites se fusionnent.
+- Visée : 4 à 6 leçons par étape (voir section 2). Une sous-section de la source ≈ une leçon ; une sous-section dense se coupe en deux ; deux petites se fusionnent.
 - Ordre = ordre de la source, sauf si une notion est utilisée avant d'être expliquée.
 - La section « Exercice » de la source devient **un seul lab** (`90-lab-<slug>.mdx`).
-- L'étape se termine par **un récap** (`80-recap-<slug>.mdx`) : un grand schéma animé de toute l'étape (section 5).
+- L'étape se termine par **un récap** (`80-recap-<slug>.mdx`) : un grand schéma animé de toute l'étape (section 6).
 - La section « Validé si… » de la source alimente les quiz (chaque point doit être testé par au moins une question quelque part dans l'étape).
 - Les tableaux de commandes de la source se répartissent dans le champ `commandes` des leçons concernées.
 
-## 4. Écrire chaque leçon
+## 5. Écrire chaque leçon
 
 Fichier : `src/content/lecons/<dossier>/<NN>-<slug>.mdx`, `NN` = `ordre` sur deux chiffres, slug en minuscules sans accents.
 
@@ -195,7 +209,7 @@ flowchart TD
 - `explication` : pourquoi la bonne est bonne, et le piège de la mauvaise la plus tentante.
 - Chaînes entre guillemets doubles ; un guillemet dans le texte s'échappe en `\"`.
 
-## 5. Écrire le récap
+## 6. Écrire le récap
 
 `80-recap-<slug>.mdx`, `type: recap`, `ordre: 80`, pas de quiz ni de commandes. Il clôt l'étape dans le parcours (avant le lab) et sert à **voir fonctionner ensemble** ce que les leçons ont découpé. Référence : `src/content/lecons/04-reseau/80-recap-reseau.mdx`.
 
@@ -206,11 +220,11 @@ flowchart TD
 5. **« Où tu en es dans la partie X »** : un petit schéma vertical des étapes de la partie, celles faites marquées ✓, et deux phrases sur le lien avec l'étape suivante.
 6. **Un `<Retenir>`** de 2 ou 3 phrases : l'étape entière.
 
-## 6. Écrire le lab
+## 7. Écrire le lab
 
 `90-lab-<slug>.mdx`, `type: lab`, `ordre: 90`, `duree` ≈ temps réel / 4, pas de quiz. Reprends l'exercice de la source en étapes numérotées `## 1. …`, commandes en blocs `bash`, ce qu'on doit observer après chaque bloc, et termine par le nettoyage. Rappelle en une phrase le prérequis (cluster kind `lab`, étape précédente faite).
 
-## 7. Vérifier
+## 8. Vérifier
 
 ```bash
 npm ci        # si node_modules absent
@@ -221,7 +235,7 @@ Corrige **toutes** les erreurs ; traite les avertissements sauf raison valable (
 
 Regarde le récap et les schémas animés dans un navigateur à 390 px de large (`npx astro preview`, Chromium via Playwright est installé) : texte lisible, couleurs et légende présentes, cartes `<Compare>` qui tiennent côte à côte, scènes qui allument ce qu'elles annoncent.
 
-## 8. Livrer
+## 9. Livrer
 
 1. Branche `lecons/etape-NN` (ou `lecons/etape-NN-MM` pour une plage), un commit par étape : `Leçons étape NN : <titre de l'étape>`.
 2. Push, puis ouvre une PR vers `main` si l'outil le permet. Description : la liste des leçons (titre, une ligne), le nombre de questions, le récap (nombre de scènes), le lab, et tout écart à signaler (source créée, avertissement conservé, ajout hors source).

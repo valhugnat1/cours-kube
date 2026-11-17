@@ -1,0 +1,89 @@
+---
+titre: "La demande, le catalogue, le disque : PVC, StorageClass, PV"
+etape: 5
+ordre: 2
+objectif: "Expliquer qui écrit quoi entre PVC, StorageClass et PV, et ce que fait le driver CSI pour passer de Pending à Bound."
+commandes:
+  - c: "kubectl get pvc,pv,storageclass"
+    d: "la demande, les disques et le catalogue, d'un coup"
+  - c: "kubectl describe pvc <nom>"
+    d: "les events : pourquoi un PVC reste Pending"
+  - c: "kubectl get csidrivers"
+    d: "les drivers de stockage installés sur le cluster"
+quiz:
+  - q: "Ton chart crée un PVC sans `storageClassName` sur un cluster kubeadm tout neuf. Il reste Pending, sans erreur claire. Cause la plus probable ?"
+    choix:
+      - "Le PVC est trop grand"
+      - "Le cluster n'a pas de StorageClass par défaut"
+      - "Le pod n'a pas les droits RBAC"
+    bonne: 1
+    explication: "Sans classe précisée, le PVC prend la classe par défaut. S'il n'y en a pas, personne ne fabrique de disque, et le PVC attend pour toujours."
+  - q: "Pourquoi le PVC est-il namespacé et le PV non ?"
+    choix:
+      - "Le PVC est la demande de l'application, le PV un disque du cluster entier"
+      - "Le PV est plus récent que le PVC dans l'API"
+      - "Pour que plusieurs namespaces partagent le même PVC"
+    bonne: 0
+    explication: "L'application demande dans son namespace. Le disque réel est une ressource d'infrastructure, au niveau du cluster, liée une fois pour toutes à une demande."
+  - q: "Chez un client on-prem, aucun PVC ne se provisionne, même avec la bonne classe. `kubectl get pods -A` ne montre aucun pod `csi`. Que manque-t-il ?"
+    choix:
+      - "Un PV créé à la main pour chaque PVC, toujours obligatoire on-prem"
+      - "Un driver CSI qui sait fabriquer les disques"
+      - "Un redémarrage du kubelet"
+    bonne: 1
+    explication: "La StorageClass nomme un provisioner, mais c'est le driver CSI (controller et plugin de nœud) qui crée et monte les disques. Sans lui, rien ne se fabrique."
+---
+
+<Idee>
+L'application **demande** du stockage (le PVC), le cluster a un **catalogue** de recettes (la StorageClass), et un **driver CSI** fabrique le **disque réel** (le PV) puis le lie à la demande.
+</Idee>
+
+<Analogie>
+Le voyageur remplit un **bon de réservation** (« un box de 20 m², accès par moi seul »). Le garde-meubles a un **catalogue de formules**. Le **manutentionnaire** (CSI) construit le box selon la formule et y met l'étiquette du voyageur.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: La demande :: Le chart écrit un PVC : 20 Gi, un seul nœud en écriture, classe `fast`. Statut `Pending`. :: APP, APP>PVC, PVC
+  %% scene: Le catalogue :: La StorageClass dit comment fabriquer : quel driver, quel type de disque, que faire à la suppression. :: PVC>SC, SC
+  %% scene: Le manutentionnaire :: Le controller CSI crée le disque chez le fournisseur et le PV qui le décrit. :: SC>CSI, CSI, CSI>PV, PV
+  %% scene: Lié :: PVC et PV sont liés un pour un, définitivement : `Bound`. Le pod peut démarrer, le kubelet monte le disque. :: PV>PVC, PVC, PV
+  APP["<b>Chart, pod</b><br/>namespace platform"]:::ext --> PVC["<b>PVC data-db</b><br/>20Gi · RWO · fast"]:::regle
+  PVC --> SC["<b>StorageClass fast</b><br/>catalogue, cluster"]:::regle
+  SC --> CSI["<b>Driver CSI</b><br/>crée et attache"]:::moteur
+  CSI --> PV["<b>PV pvc-9c1e…</b><br/>le disque réel"]:::cible
+  PV -->|"Bound"| PVC
+```
+
+## Qui écrit quoi
+
+| Objet | Écrit par | Portée |
+|---|---|---|
+| PVC | ton chart | ✔ namespace |
+| StorageClass | l'admin ou le cloud | cluster |
+| PV | le driver CSI (ou un admin, à l'ancienne) | cluster |
+
+Tu ne fabriques jamais les StorageClasses : ton chart doit vivre avec celles du client. Le **provisioning dynamique**, c'est le cas normal : le PV naît à la demande. Le **statique**, des PV créés à l'avance par un admin, se voit encore sur du NFS ancien.
+
+Un driver CSI, c'est deux morceaux : un **controller** (Deployment) qui crée et attache les disques chez le fournisseur, un **plugin de nœud** (DaemonSet) qui les formate et les monte dans le pod. Sur GKE il est préinstallé ; on-prem, c'est le client qui l'a mis (vSphere, Ceph, Longhorn…), ou pas.
+
+<Compare>
+<Cas ton="ok" titre="Classe par défaut présente">
+
+PVC sans classe : il prend la défaut, un disque naît, `Bound`.
+
+</Cas>
+<Cas ton="ko" titre="Pas de classe par défaut">
+
+PVC sans classe : personne ne le prend. `Pending` pour toujours.
+
+</Cas>
+</Compare>
+
+<Piege>
+`storageClassName: ""` (vide) n'est pas « absent » : c'est « aucune classe », donc statique seulement. Une valeur Helm mal templatée produit ce PVC qui n'aboutit jamais.
+</Piege>
+
+<Retenir>
+PVC = la demande (ton chart), StorageClass = le catalogue (le client), PV = le disque (le CSI). `kubectl describe pvc` dit toujours pourquoi ça bloque.
+</Retenir>

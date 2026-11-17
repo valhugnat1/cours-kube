@@ -1,0 +1,82 @@
+---
+titre: "Comment la configuration entre dans un pod"
+etape: 6
+ordre: 1
+objectif: "Dire quand une config modifiée est prise en compte, selon qu'elle arrive en variable ou en fichier, et à quoi sert l'annotation checksum."
+commandes:
+  - c: "kubectl get configmap <nom> -o yaml"
+    d: "le contenu d'une configuration"
+  - c: "kubectl rollout restart deploy/<nom>"
+    d: "redémarrer les pods pour relire leurs variables"
+quiz:
+  - q: "Un client modifie le ConfigMap `LOG_LEVEL=debug`, consommé en variable d'environnement. Une heure après, les logs sont toujours en `info`. Pourquoi ?"
+    choix:
+      - "Une variable d'environnement est lue une fois, au démarrage du conteneur"
+      - "Le kubelet met plusieurs heures à synchroniser"
+      - "Le ConfigMap est immuable par défaut"
+    bonne: 0
+    explication: "Les variables sont figées au démarrage. Il faut redémarrer les pods (rollout restart) pour qu'ils relisent la valeur."
+  - q: "Ton chart fait un `helm upgrade` qui ne change qu'un ConfigMap. Aucun pod ne redémarre. Que manque-t-il au chart ?"
+    choix:
+      - "Une NetworkPolicy"
+      - "Un `subPath` sur le montage"
+      - "Une annotation checksum de la config dans le template du pod"
+    bonne: 2
+    explication: "Le hash de la config dans le template du pod change avec elle : le Deployment voit un pod différent et fait un rolling update."
+  - q: "Un fichier de config monté avec `subPath` n'est jamais mis à jour quand le ConfigMap change. Est-ce normal ?"
+    choix:
+      - "Non, c'est un bug du kubelet"
+      - "Oui : subPath monte une copie, jamais rafraîchie"
+      - "Oui, mais seulement sur OpenShift"
+    bonne: 1
+    explication: "Un répertoire monté est mis à jour en place en moins d'une minute. Avec subPath, c'est une copie figée : pas de mise à jour."
+---
+
+<Idee>
+La configuration vit dans un **ConfigMap** (ou un **Secret** pour le sensible) et entre dans le pod **en variable** (lue une fois au démarrage) ou **en fichier** (mis à jour en place). Un chart bien fait redémarre les pods quand leur config change.
+</Idee>
+
+<Analogie>
+La plateforme est un **immeuble de bureaux**. La config, ce sont les **notes de service** : soit **dictées à l'embauche** (variables, figées), soit **affichées au mur** du bureau (fichiers, remplacées quand la direction les change). On garde cet immeuble toute l'étape : badges, coffres, vigiles.
+</Analogie>
+
+## La carte de l'étape
+
+Faire entrer config et secrets, puis contrôler **qui** entre et **ce qui** a le droit d'entrer.
+
+```mermaid
+flowchart TD
+  CFG["<b>ConfigMap, Secret</b><br/>la config · leçons 1 et 2"]:::regle --> POD["<b>Pod</b><br/>le bureau"]:::cible
+  ID["<b>Identité</b><br/>qui es-tu · leçon 3"]:::ext --> RBAC["<b>RBAC</b><br/>tes droits · leçon 4"]:::regle
+  RBAC --> ADM["<b>Admission</b><br/>pod conforme ? · leçon 5"]:::moteur
+  ADM --> POD
+```
+
+## Variable ou fichier : la différence qui compte
+
+```mermaid
+flowchart TD
+  %% scene: Le ConfigMap change :: Le client applique `LOG_LEVEL=debug`. :: CM
+  %% scene: En fichier :: Un répertoire monté est mis à jour en place, en moins d'une minute. Encore faut-il que l'appli relise. :: CM>F, F
+  %% scene: En variable :: La variable a été lue au démarrage. Rien ne change jusqu'au redémarrage. :: !CM>V, !V
+  %% scene: Le checksum :: Le chart met le hash de la config dans le pod. Config modifiée, pod différent, rolling update : tout repart à jour. :: CK, CK>V, V
+  CM["<b>ConfigMap api-config</b><br/>LOG_LEVEL=debug"]:::regle --> F["<b>Fichier /etc/api</b><br/>mis à jour ✔"]:::cible
+  CM --> V["<b>Variable d'env</b><br/>figée au démarrage"]:::moteur
+  CK["<b>checksum/config</b><br/>annotation du chart"]:::regle -.-> V
+```
+
+| Consommation | Après modification du ConfigMap |
+|---|---|
+| Variable d'environnement | ✘ rien jusqu'au redémarrage |
+| Fichier, répertoire monté | ✔ mis à jour sous une minute |
+| Fichier monté avec `subPath` | ✘ copie figée, jamais rafraîchie |
+
+Un Secret fonctionne pareil, avec quelques types en plus : certificats TLS, identifiants de registre d'images.
+
+<Terrain>
+« J'ai changé la config, rien ne bouge » : demande comment elle est consommée. Sans checksum dans le chart, un `helm upgrade` qui ne touche que la config ne redémarre rien, et le client croit sa nouvelle config active.
+</Terrain>
+
+<Retenir>
+Variable = figée au démarrage. Fichier = mis à jour, sauf avec `subPath`. L'annotation checksum fait redémarrer les pods quand leur config change.
+</Retenir>

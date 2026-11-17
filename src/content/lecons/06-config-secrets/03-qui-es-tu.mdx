@@ -1,0 +1,82 @@
+---
+titre: "Qui es-tu ? Humains, pods et identité cloud"
+etape: 6
+ordre: 3
+objectif: "Expliquer d'où vient l'identité d'un humain et d'un pod face à l'API Kubernetes, et pourquoi un pod cloud en a deux."
+commandes:
+  - c: "kubectl get serviceaccounts"
+    d: "les identités des pods dans ce namespace"
+quiz:
+  - q: "Un client demande « combien d'utilisateurs Kubernetes allez-vous créer ? ». Que réponds-tu ?"
+    choix:
+      - "Un par membre de l'équipe, dans un namespace dédié"
+      - "Aucun : Kubernetes n'a pas d'objet utilisateur, les humains viennent de votre annuaire (OIDC) ou du cloud"
+      - "Un seul utilisateur admin partagé"
+    bonne: 1
+    explication: "Kubernetes ne stocke pas d'utilisateurs humains. L'identité vient d'un certificat, d'un token OIDC (Keycloak, Entra…) ou du cloud."
+  - q: "Quelle identité utilise un pod qui ne précise pas de ServiceAccount ?"
+    choix:
+      - "Le ServiceAccount `default` de son namespace"
+      - "Aucune, il ne peut rien demander"
+      - "L'identité de la personne qui a fait le déploiement"
+    bonne: 0
+    explication: "Chaque namespace a un ServiceAccount `default`. Les charts sérieux créent un ServiceAccount dédié par composant."
+  - q: "Sur GKE, un pod doit lire un bucket Google Cloud. Son ServiceAccount Kubernetes suffit-il ?"
+    choix:
+      - "Oui, c'est la même identité"
+      - "Oui, si le RBAC l'autorise"
+      - "Non : il faut le lier à un compte de service Google (Workload Identity)"
+    bonne: 2
+    explication: "Le ServiceAccount parle à l'API Kubernetes. Pour le cloud, une seconde identité est nécessaire, liée par Workload Identity (étape 10)."
+---
+
+<Idee>
+Kubernetes **ne connaît pas d'utilisateurs**. Un humain prouve qui il est avec une identité **venue d'ailleurs** (certificat, annuaire de l'entreprise, compte cloud). Un pod, lui, a un **ServiceAccount**. Sur un cloud, un pod a même une **seconde identité** pour parler aux services du cloud.
+</Idee>
+
+<Analogie>
+L'immeuble ne tient pas de registre des visiteurs : il fait confiance à la **carte d'identité** délivrée par l'État (l'annuaire du client). Les employés-machines, eux, reçoivent un **badge** maison (le ServiceAccount). Et pour aller à la banque d'en face (le cloud), il faut **un autre badge**.
+</Analogie>
+
+```mermaid
+flowchart TD
+  H["<b>Humain</b><br/>OIDC, certificat, gcloud"]:::ext --> API["<b>API server</b><br/>vérifie l'identité"]:::moteur
+  P["<b>Pod api</b><br/>ServiceAccount api"]:::ext --> API
+  P -.->|"Workload Identity"| G["<b>Services du cloud</b><br/>bucket, base, KMS"]:::cible
+  API --> R["<b>RBAC</b><br/>leçon suivante"]:::regle
+```
+
+## Les humains
+
+| Source | Où tu la vois |
+|---|---|
+| Certificat client | ✔ kind, kubeadm : ton `~/.kube/config` |
+| Token OIDC | ✔ en entreprise : Keycloak, Google, Entra |
+| Identité cloud | ✔ GKE : `gcloud` obtient un token de ta session |
+
+## Les pods
+
+Un **ServiceAccount** est un objet namespacé. Son token est déposé automatiquement dans chaque pod, et c'est avec lui que le pod parle à l'API. Sans précision, un pod prend le ServiceAccount `default`.
+
+<Compare>
+<Cas ton="ok" titre="Chart sérieux">
+
+- un ServiceAccount par composant
+- token non monté si le composant ne parle pas à l'API
+
+</Cas>
+<Cas ton="ko" titre="Chart négligé">
+
+- tout tourne sous `default`
+- chaque pod porte un token inutile
+
+</Cas>
+</Compare>
+
+<Terrain>
+Sur un cloud, deux identités : une pour Kubernetes, une pour le cloud. Un pod qui a les droits RBAC mais pas le compte de service Google lié ne lira pas son bucket.
+</Terrain>
+
+<Retenir>
+Pas d'utilisateur dans Kubernetes : les humains viennent de l'annuaire du client, les pods ont un ServiceAccount. Sur un cloud, un pod a deux identités.
+</Retenir>

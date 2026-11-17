@@ -24,6 +24,8 @@ Utilise le skill **`/lecon`** (`.claude/skills/lecon/SKILL.md`) : `/lecon etape-
 
 Règles non négociables, détaillées dans le skill :
 
+- **Niveau architecte** (à partir de l'étape 5) : Hugo est solution architect. Les mécanismes, qui fait quoi, ce qui change chez le client et les questions à poser, pas le détail de chaque option. 4 à 6 leçons par étape, 200 à 380 mots chacune.
+
 - Une leçon = une idée, 180 à 550 mots de prose, au moins un schéma mermaid **vertical** (`flowchart TD`), un seul encadré `<Retenir>`, 3 ou 4 questions de quiz.
 - **Méthode pédagogique** (Hugo apprend par l'image) : chaque leçon s'ouvre par `<Idee>` (l'idée en une phrase simple), puis `<Analogie>` (un seul univers d'analogie par étape, filé de leçon en leçon), puis le schéma. Schémas avec **une couleur par rôle** (`:::ext`, `:::regle`, `:::moteur`, `:::cible`, `:::ko`), noms concrets, ✔ et ✘. Tableaux d'exemples « cas, résultat », face-à-face `<Compare>`, ancrage `<Terrain>`. La première leçon d'une étape donne la carte de l'étape ; le récap finit par le glossaire « Les mots de l'étape ». Exigé par le contrôle qualité à partir de l'étape 4 ; l'étape 4 est la référence.
 - Les commandes vont dans le champ `commandes` du frontmatter (5 max), pas dans des blocs bash. Les exercices clavier vont dans **un lab** par étape (`90-lab-….mdx`, `type: lab`).
