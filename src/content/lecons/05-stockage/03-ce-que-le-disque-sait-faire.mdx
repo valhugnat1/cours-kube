@@ -1,0 +1,69 @@
+---
+titre: "Ce que le disque sait faire : partage, zone, suppression"
+etape: 5
+ordre: 3
+objectif: "Lire les trois réglages qui décident d'une architecture : mode d'accès, moment de création, sort du disque à la suppression."
+commandes:
+  - c: "kubectl get storageclass"
+    d: "classes, défaut, reclaim policy, binding mode"
+quiz:
+  - q: "Trois réplicas d'un composant doivent écrire dans le même répertoire de fichiers uploadés. Sur GKE avec la classe par défaut, le PVC reste Pending. Pourquoi ?"
+    choix:
+      - "La classe par défaut est un disque bloc : RWO seulement, pas de RWX"
+      - "Il faut un PVC par réplica"
+      - "GKE limite les PVC à 10 Gi"
+    bonne: 0
+    explication: "Le partage en écriture entre nœuds (RWX) n'existe que sur un système de fichiers partagé. Les disques persistants GKE ne le font pas : il faut Filestore, ou passer par du stockage objet."
+  - q: "Un PVC créé seul affiche `waiting for first consumer to be created before binding`. Que fais-tu ?"
+    choix:
+      - "Tu changes de StorageClass"
+      - "Rien : le disque sera créé quand un pod l'utilisera, dans sa zone"
+      - "Tu crées le PV à la main"
+    bonne: 1
+    explication: "C'est WaitForFirstConsumer, le bon réglage : le disque attend de savoir où ira le pod pour naître dans la bonne zone. Pas une erreur."
+  - q: "Un client supprime par erreur le PVC de sa base. La classe est en `Delete`. Que reste-t-il ?"
+    choix:
+      - "Le PV en Released, réutilisable"
+      - "Le disque, mais plus son PV"
+      - "Rien : le disque est détruit avec le PVC"
+    bonne: 2
+    explication: "En `Delete` (défaut des classes cloud), supprimer le PVC détruit le disque et les données. Pour une base de production, on exige `Retain`."
+---
+
+<Idee>
+Trois réglages du catalogue décident de ton architecture : **qui peut écrire** sur le disque (un nœud ou plusieurs), **quand** il est créé (tout de suite ou là où va le pod), et **ce qu'il devient** quand on supprime la demande.
+</Idee>
+
+<Analogie>
+Le **box** du garde-meubles : une seule clé ou une clé par colocataire ? Construit à l'avance au hasard, ou **dans la ville où tu t'installes** ? Et à la résiliation, on **vide le box** ou on le garde fermé ?
+</Analogie>
+
+## Qui peut écrire : RWO ou RWX
+
+```mermaid
+flowchart TD
+  D["<b>Disque bloc</b><br/>GCE PD, EBS, Ceph RBD"]:::regle --> RWO["<b>RWO</b><br/>un seul nœud écrit ✔"]:::cible
+  F["<b>Système de fichiers partagé</b><br/>NFS, CephFS, Filestore"]:::regle --> RWX["<b>RWX</b><br/>plusieurs nœuds écrivent ✔"]:::cible
+  D -.->|"RWX demandé"| KO["<b>PVC Pending</b><br/>pour toujours ✘"]:::ko
+```
+
+Le mode d'accès dit ce que **le stockage sait faire**, pas ce que le pod veut. Tous les disques savent RWO. Le RWX n'existe que sur un système de fichiers partagé, et c'est **la première question à poser chez un client** : quels composants du chart en ont besoin, et y a-t-il une alternative ? La plateforme stocke ses fichiers en stockage objet justement pour s'en passer.
+
+## Quand il naît : la zone
+
+Avec `Immediate`, le disque naît dès la demande, sans savoir où ira le pod. Sur un cloud multi-zones, disque en zone A, pod en zone B : le pod ne démarre pas. Avec `WaitForFirstConsumer` (le bon réglage, défaut des classes modernes), le disque attend le pod et naît dans sa zone.
+
+## Ce qu'il devient : la reclaim policy
+
+| PVC supprimé, classe en… | Résultat |
+|---|---|
+| `Delete` (défaut cloud) | ✘ disque et données détruits |
+| `Retain` | ✔ disque gardé, PV en `Released`, à rattacher à la main |
+
+<Terrain>
+Pour les bases de production d'un client, demande une classe en `Retain`. C'est ce qui sépare une fausse manip d'une perte de données.
+</Terrain>
+
+<Retenir>
+RWX n'existe que sur du stockage partagé : vérifie-le en premier. `WaitForFirstConsumer` place le disque dans la bonne zone. `Retain` protège les données d'une suppression.
+</Retenir>

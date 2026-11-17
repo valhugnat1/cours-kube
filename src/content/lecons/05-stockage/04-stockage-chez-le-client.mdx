@@ -1,0 +1,84 @@
+---
+titre: "Le stockage change chez chaque client"
+etape: 5
+ordre: 4
+objectif: "Situer ce que fournissent GKE, OpenShift, VMware, Ceph, Longhorn, NFS et local-path, et poser les cinq questions avant d'installer."
+commandes:
+  - c: "kubectl get storageclass"
+    d: "la classe par défaut et les classes disponibles"
+  - c: "kubectl get volumesnapshotclass"
+    d: "les snapshots sont-ils possibles (sauvegardes)"
+quiz:
+  - q: "Chez un client sur NFS, on te propose de mettre la base PostgreSQL de la plateforme sur la classe `nfs-client`. Ta réponse ?"
+    choix:
+      - "D'accord, NFS fait du RWX, c'est même mieux"
+      - "Non : le verrouillage de fichiers NFS n'est pas fiable pour une base"
+      - "D'accord si la reclaim policy est Retain"
+    bonne: 1
+    explication: "NFS est pratique pour partager des fichiers, mais son verrouillage est douteux : jamais pour une base de données. Il faut un disque bloc."
+  - q: "Sur kind ou k3s (classe local-path), le nœud d'un pod tombe. Le pod est replanifié ailleurs mais ne démarre pas. Pourquoi ?"
+    choix:
+      - "Son volume est collé au nœud d'origine"
+      - "local-path ne supporte pas les StatefulSets"
+      - "Il faut agrandir le PVC"
+    bonne: 0
+    explication: "local-path crée un répertoire sur un nœud précis. Le volume ne peut pas suivre le pod ailleurs : parfait en lab, fragile en production."
+  - q: "Sur OpenShift avec ODF, de quelle classe vient le RWX ?"
+    choix:
+      - "De la classe Ceph RBD"
+      - "OpenShift ne fournit pas de RWX"
+      - "De la classe CephFS"
+    bonne: 2
+    explication: "ODF fournit deux classes : Ceph RBD (bloc, RWO) et CephFS (système de fichiers partagé, RWX)."
+  - q: "Un client Longhorn a un cluster de 2 nœuds. Tous les volumes sont dégradés. Pourquoi ?"
+    choix:
+      - "Longhorn réplique en 3 copies par défaut, impossible sur 2 nœuds"
+      - "Longhorn demande un nœud maître dédié"
+      - "Les PVC sont en WaitForFirstConsumer"
+    bonne: 0
+    explication: "Longhorn garde 3 répliques de chaque volume sur des nœuds différents. Avec 2 nœuds, chaque volume tourne en mode dégradé."
+---
+
+<Idee>
+Ton chart demande des PVC, mais **c'est l'infrastructure du client qui répond**. Chaque environnement a ses classes, ses forces (RWX, snapshots) et ses pièges. Cinq questions avant d'installer évitent la plupart des blocages.
+</Idee>
+
+<Analogie>
+Chaque ville a **son garde-meubles**. Ici pas de box partagé, là des box collés à un seul immeuble, ailleurs une enseigne qui exige trois copies de tout. Ton bon de réservation est le même partout ; la réponse, non.
+</Analogie>
+
+```mermaid
+flowchart TD
+  CH["<b>Ton chart</b><br/>PVC RWO et RWX"]:::regle --> Q{{"<b>Que fournit le client ?</b>"}}:::ext
+  Q -->|"GKE"| G["<b>Disques zonaux</b><br/>RWO ✔ · RWX ✘ sans Filestore"]:::cible
+  Q -->|"OpenShift ODF"| O["<b>Ceph RBD + CephFS</b><br/>RWO ✔ · RWX ✔"]:::cible
+  Q -->|"kind, k3s"| L["<b>local-path</b><br/>collé au nœud ✘"]:::ko
+```
+
+## Les environnements en bref
+
+| Environnement | Ce qu'il faut savoir |
+|---|---|
+| GKE | ✔ RWO et snapshots. ✘ pas de RWX sans Filestore, coûteux. Disques zonaux. |
+| OpenShift (ODF) | ✔ RWO (Ceph RBD), RWX (CephFS). UID arbitraire : `fsGroup` à ne pas fixer. |
+| VMware (vSphere CSI) | ✔ RWO. ✘ datastore plein = PVC Pending sans message parlant. |
+| Ceph, Rook | ✔ tout. Performances variables ; Ceph en alerte = tout ralentit. |
+| Longhorn | ✔ tout. 3 répliques par défaut : un cluster à 2 nœuds dégrade tout. |
+| NFS | ✔ RWX. ✘ jamais pour une base de données. |
+| local-path (kind, k3s) | ✘ volume collé au nœud, pas d'agrandissement. |
+
+## Les cinq questions avant de dire « ça va s'installer »
+
+1. Y a-t-il une StorageClass par défaut, et laquelle ?
+2. Une classe RWX existe-t-elle ? Sinon, quels composants en ont besoin ?
+3. Les snapshots sont-ils supportés ? C'est la base des sauvegardes.
+4. Quelle capacité reste-t-il réellement ?
+5. Les disques sont-ils zonaux, et les nœuds sur plusieurs zones ?
+
+<Terrain>
+Les questions 1 à 3 se vérifient seul avec `kubectl get storageclass` et `kubectl get volumesnapshotclass`, avant même la réunion. Arrive avec les réponses.
+</Terrain>
+
+<Retenir>
+Le même chart rencontre des stockages très différents. RWX, snapshots, capacité, zones : pose les cinq questions avant d'installer, pas après le premier PVC Pending.
+</Retenir>

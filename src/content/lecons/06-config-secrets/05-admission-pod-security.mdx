@@ -1,0 +1,75 @@
+---
+titre: "Le vigile à l'entrée : Pod Security et admission"
+etape: 6
+ordre: 5
+objectif: "Reconnaître un pod refusé par Pod Security ou un webhook du client, et savoir ce qu'un chart doit respecter pour passer restricted."
+commandes:
+  - c: "kubectl get events --sort-by=.lastTimestamp"
+    d: "le FailedCreate qui explique un refus"
+  - c: "kubectl get validatingwebhookconfigurations,mutatingwebhookconfigurations"
+    d: "qui filtre ou modifie tes objets sur ce cluster"
+quiz:
+  - q: "Chez un client, tous les Deployments de la plateforme sont à `0/1` et aucun pod n'existe. Premier réflexe ?"
+    choix:
+      - "Lire les events : un refus d'admission (`FailedCreate … violates PodSecurity`) ressemble exactement à ça"
+      - "Vérifier la StorageClass"
+      - "Redémarrer le kubelet"
+    bonne: 0
+    explication: "Le Deployment est accepté, mais ses pods sont refusés à l'admission. Le ReplicaSet note un FailedCreate qui liste les champs manquants."
+  - q: "Ton chart fixe `runAsUser: 1000`. Il passe partout, sauf sur OpenShift où il est refusé. Pourquoi ?"
+    choix:
+      - "OpenShift interdit les conteneurs non-root"
+      - "La SCC d'OpenShift impose un UID arbitraire, propre au namespace"
+      - "OpenShift exige runAsUser 0"
+    bonne: 1
+    explication: "La SCC `restricted-v2` attribue un UID dans une plage du namespace. Le chart doit laisser l'UID vide et l'image fonctionner avec n'importe quel UID du groupe 0."
+  - q: "Ce qui tourne chez le client ne ressemble pas à ce que ton chart a rendu : un sidecar en plus, un registre d'image réécrit. Suspect n° 1 ?"
+    choix:
+      - "Un bug de Helm"
+      - "Le RBAC du client"
+      - "Un webhook d'admission mutant du client"
+    bonne: 2
+    explication: "Les webhooks mutants modifient les objets avant qu'ils n'entrent dans le cluster. Compare `helm template` et `kubectl get -o yaml`."
+---
+
+<Idee>
+Le RBAC décide **qui** peut créer un pod. L'**admission** décide **à quoi un pod a le droit de ressembler** : un vigile contrôle chaque objet avant qu'il n'entre, et peut le **refuser** ou le **modifier**.
+</Idee>
+
+<Analogie>
+Ton badge t'ouvre la porte (RBAC). Mais à l'entrée, un **vigile** applique le **règlement de sécurité** : pas de chaussures de chantier dans les bureaux, casque obligatoire en atelier. Certains immeubles ajoutent leurs **vigiles maison**, qui vous refusent, ou vous collent un badge visiteur en plus.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Le Deployment passe :: Tu as le droit RBAC de créer le Deployment. Il est accepté. :: D
+  %% scene: Le pod au contrôle :: Le ReplicaSet crée un pod. L'admission vérifie son securityContext. :: D>ADM, ADM
+  %% scene: Refusé :: Pas de `runAsNonRoot` ou d'`allowPrivilegeEscalation: false` en namespace restricted : refusé. Deployment à 0/1, aucun pod. :: !ADM>KO, !KO
+  %% scene: Conforme :: Avec le bon securityContext, le pod entre. Un webhook mutant peut encore le modifier en route. :: ADM>WH, WH, WH>OK, OK
+  D["<b>Deployment api</b><br/>accepté par le RBAC"]:::ext --> ADM["<b>Pod Security Admission</b><br/>namespace restricted"]:::moteur
+  ADM -->|"refusé"| KO["<b>FailedCreate</b><br/>0/1, aucun pod ✘"]:::ko
+  ADM --> WH["<b>Webhooks du client</b><br/>Kyverno, Gatekeeper"]:::moteur
+  WH --> OK["<b>Pod api</b><br/>créé ✔"]:::cible
+```
+
+## Trois niveaux, posés sur le namespace
+
+| Niveau | Ce qu'il exige |
+|---|---|
+| privileged | rien : réservé aux agents système (CNI, CSI, GPU) |
+| baseline | interdit le pire : mode privilégié, accès à l'hôte |
+| restricted | non-root, pas d'escalade de privilèges, capacités retirées, profil seccomp |
+
+Un chart destiné aux clients doit passer **restricted** partout où c'est possible. Le symptôme d'un refus est très reconnaissable : le Deployment existe, **aucun pod n'apparaît**, et les events disent champ par champ ce qui manque.
+
+## Ce que le client ajoute
+
+**OpenShift** a son propre vigile, les SCC : elles imposent un UID arbitraire, donc un chart ne fixe pas d'UID. Beaucoup de clients ajoutent des **webhooks** (Kyverno, Gatekeeper) avec leurs règles : pas de tag `latest`, limites obligatoires, registres autorisés. Les webhooks **mutants** modifient tes objets en silence.
+
+<Terrain>
+Quand ce qui tourne ne ressemble pas à ce que ton chart a rendu, compare `helm template` avec `kubectl get -o yaml` : l'écart vient presque toujours d'un webhook mutant.
+</Terrain>
+
+<Retenir>
+RBAC = qui crée ; admission = à quoi ressemble ce qui est créé. Deployment à 0/1 sans pod : lis les events, c'est un refus d'admission.
+</Retenir>

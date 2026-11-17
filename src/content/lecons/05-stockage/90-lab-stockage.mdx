@@ -1,0 +1,90 @@
+---
+titre: "Lab : un disque qui survit, un PVC qui attend, un StatefulSet qui garde"
+etape: 5
+ordre: 90
+type: lab
+duree: 10
+objectif: "Voir un PVC passer de Pending à Bound, des données survivre au pod et au StatefulSet, et un PVC bloqué par une classe absente."
+---
+
+Sur ton PC, cluster kind `lab` de l'étape 0. kind fournit une classe `standard` (local-path), par défaut.
+
+## 1. Prépare le terrain
+
+```bash
+kubectl config current-context    # doit être kind-lab
+kubectl create namespace lab5 && kubens lab5
+kubectl get storageclass
+```
+
+Repère la classe par défaut, sa reclaim policy et son binding mode.
+
+## 2. Un PVC qui attend son pod
+
+```bash
+kubectl apply -f - <<'YAML'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: test }
+spec:
+  accessModes: [ReadWriteOnce]
+  resources: { requests: { storage: 1Gi } }
+YAML
+kubectl describe pvc test | tail -3
+```
+
+`Pending`, avec `waiting for first consumer` : ce n'est pas une erreur. Lance un pod qui le monte :
+
+```bash
+kubectl run p --image=busybox --overrides='{"spec":{"volumes":[{"name":"d","persistentVolumeClaim":{"claimName":"test"}}],"containers":[{"name":"p","image":"busybox","command":["sleep","3600"],"volumeMounts":[{"name":"d","mountPath":"/data"}]}]}}'
+kubectl get pvc,pv
+```
+
+Le PVC passe `Bound`, un PV apparaît.
+
+## 3. Les données survivent au pod
+
+```bash
+kubectl exec p -- sh -c 'echo hello > /data/f'
+kubectl delete pod p
+# relance la même commande kubectl run qu'au point 2, puis :
+kubectl exec p -- cat /data/f
+```
+
+`hello` : le pod est mort, le disque non.
+
+## 4. Une classe qui n'existe pas
+
+```bash
+kubectl apply -f - <<'YAML'
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata: { name: bad }
+spec:
+  accessModes: [ReadWriteOnce]
+  storageClassName: fast
+  resources: { requests: { storage: 1Gi } }
+YAML
+kubectl describe pvc bad | tail -3
+```
+
+Même statut `Pending` qu'au point 2, cause différente : seul `describe` les distingue.
+
+## 5. Le StatefulSet garde ses PVC
+
+Déploie un StatefulSet `db` (`postgres:16`, `POSTGRES_PASSWORD=lab`, 1 réplica, `volumeClaimTemplates` de 1Gi sur `/var/lib/postgresql/data`, Service headless `db`). Puis :
+
+```bash
+kubectl exec db-0 -- psql -U postgres -c "create table t(x int); insert into t values (42);"
+kubectl delete sts db
+kubectl get pvc          # data-db-0 est toujours là
+```
+
+Réapplique le StatefulSet : `select * from t` renvoie toujours `42`.
+
+## 6. Nettoie
+
+```bash
+kubectl delete namespace lab5
+kubectl get pv           # un PV en Retain resterait : à supprimer à la main
+```

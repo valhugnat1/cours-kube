@@ -1,0 +1,84 @@
+---
+titre: "Ce qui survit au pod, et ce qui meurt avec lui"
+etape: 5
+ordre: 1
+objectif: "Dire ce qu'un pod perd en mourant et quel type de volume garde quoi, de la RAM au disque persistant."
+commandes:
+  - c: "kubectl get pod <pod> -o yaml | yq .spec.volumes"
+    d: "les volumes déclarés par un pod"
+quiz:
+  - q: "Un pod de base de données redémarre sur un autre nœud. Ses données étaient écrites dans le système de fichiers du conteneur. Que retrouve-t-il ?"
+    choix:
+      - "Rien : la couche d'écriture du conteneur disparaît avec lui"
+      - "Tout, Kubernetes copie le conteneur sur le nouveau nœud"
+      - "Les données, mais en lecture seule"
+    bonne: 0
+    explication: "Le système de fichiers d'un conteneur est une couche jetable au-dessus de l'image. Ce qui doit survivre va dans un volume persistant (PVC)."
+  - q: "Un init container télécharge un modèle, le conteneur principal le lit. Le modèle peut être retéléchargé si le pod est replanifié. Quel volume suffit ?"
+    choix:
+      - "Un PVC en ReadWriteMany"
+      - "Un hostPath sur le nœud"
+      - "Un emptyDir partagé entre les deux conteneurs"
+    bonne: 2
+    explication: "emptyDir vit aussi longtemps que le pod et se partage entre ses conteneurs : parfait pour un cache qu'on peut reconstruire. hostPath colle au nœud et est refusé par les politiques de sécurité."
+  - q: "Un serveur d'inférence plante au démarrage, faute de mémoire partagée. Que lui manque-t-il le plus probablement ?"
+    choix:
+      - "Un PVC plus grand"
+      - "Un emptyDir en mémoire monté sur /dev/shm"
+      - "Une StorageClass plus rapide"
+    bonne: 1
+    explication: "PyTorch et vLLM ont besoin d'un /dev/shm bien plus grand que les 64 Mo par défaut. On le donne avec un emptyDir medium Memory, qui compte dans la limite mémoire du pod."
+---
+
+<Idee>
+Le disque d'un conteneur est **jetable** : il disparaît avec lui. Tout ce qui doit survivre va dans un **volume**, déclaré par le pod. Le type de volume décide de sa durée de vie : celle du pod, ou au-delà.
+</Idee>
+
+<Analogie>
+Le pod est un voyageur à l'**hôtel**. Ce qu'il laisse dans la **chambre** (le conteneur) est jeté au départ. Pour garder ses affaires, il loue un **box au garde-meubles** (le volume persistant), qui l'attend au prochain séjour, quel que soit l'hôtel. On garde cette image toute l'étape.
+</Analogie>
+
+## La carte de l'étape
+
+Le stockage, c'est **une demande**, **un catalogue** et **un disque réel**, plus ce qui change chez chaque client. Chaque leçon zoome sur une boîte.
+
+```mermaid
+flowchart TD
+  POD["<b>Pod</b><br/>monte un volume · leçon 1"]:::ext --> PVC["<b>PVC</b><br/>la demande · leçon 2"]:::regle
+  PVC --> SC["<b>StorageClass + CSI</b><br/>le catalogue · leçons 2 et 3"]:::moteur
+  SC --> PV["<b>PV, le disque réel</b><br/>chez le client · leçon 4"]:::cible
+  PV -.-> VIE["<b>Après le pod</b><br/>supprimé ou gardé · leçon 5"]:::cible
+```
+
+## Trois durées de vie
+
+```mermaid
+flowchart TD
+  C["<b>Couche du conteneur</b><br/>meurt au redémarrage ✘"]:::ko
+  E["<b>emptyDir</b><br/>vit avec le pod"]:::moteur
+  P["<b>PVC</b><br/>survit au pod ✔"]:::cible
+  C ~~~ E
+  E ~~~ P
+```
+
+| Volume | Ce qu'il garde | Usage typique |
+|---|---|---|
+| `emptyDir` | ✔ un redémarrage de conteneur, ✘ un déplacement du pod | cache, partage init container et conteneur |
+| `emptyDir` en mémoire | ✔ idem, en RAM | `/dev/shm` des serveurs d'inférence |
+| `configMap`, `secret` | ✔ suit l'objet source | fichiers de config, certificats (étape 6) |
+| `persistentVolumeClaim` | ✔ indépendant du pod | bases, files, tout ce qui compte |
+| `hostPath` | ✘ collé au nœud | réservé aux agents système |
+
+Un volume est déclaré une fois dans le pod, puis monté dans un ou plusieurs de ses conteneurs. C'est ainsi qu'un init container prépare un modèle que le conteneur principal lit ensuite.
+
+<Terrain>
+Le plan de données de la plateforme (bases, cache, bus, analytique) repose entier sur des PVC. Le stockage est **le** point où l'infra du client rencontre ton chart.
+</Terrain>
+
+<Piege>
+Un `hostPath` dans un chart applicatif : non portable, et refusé par les politiques de sécurité de tout client sérieux.
+</Piege>
+
+<Retenir>
+Le conteneur oublie tout. `emptyDir` vit avec le pod, un PVC survit au pod. Choisis le volume selon ce qui doit survivre.
+</Retenir>

@@ -1,0 +1,73 @@
+---
+titre: "Récap : d'une demande de stockage au disque, et après"
+etape: 5
+ordre: 80
+type: recap
+objectif: "Revoir toute l'étape sur un schéma : volume, PVC, StorageClass, CSI, PV, et le sort des données."
+---
+
+Toute l'étape suit **un disque**. Le chart le demande, le catalogue du client dit comment le fabriquer, le driver CSI le crée et le monte, puis il vit plus longtemps que le pod, ou pas.
+
+Regarde les couleurs : **ton chart demande** (violet), **l'infrastructure du client répond** (ambre). C'est le fil rouge du stockage : tu ne choisis pas le disque, tu fais avec. Lance le pas à pas avec ▶.
+
+```mermaid
+flowchart TD
+  %% scene: Le pod oublie :: La couche d'écriture du conteneur meurt avec lui. Un `emptyDir` vit avec le pod. Ce qui compte va dans un PVC. :: POD, !CT, EMP
+  %% scene: La demande :: Le chart écrit un PVC : taille, mode d'accès, classe. Il est namespacé, c'est ta part du contrat. :: POD>PVC, PVC
+  %% scene: Le catalogue :: La StorageClass du client dit quel driver, quel disque, quelle reclaim policy. Sans classe par défaut, rien ne se passe. :: PVC>SC, SC
+  %% scene: RWX impossible :: Demander du RWX à une classe de disques bloc : le PVC reste `Pending`. Première question à poser chez un client. :: !PVC, !PVC>SC
+  %% scene: La fabrication :: Le controller CSI crée le disque chez le fournisseur, dans la zone du pod grâce à `WaitForFirstConsumer`. :: SC>CSI, CSI, CSI>PV, PV
+  %% scene: Le montage :: PV et PVC sont liés, `Bound`. Le plugin CSI du nœud monte le disque dans le pod, avec `fsGroup` si non-root. :: PV>PVC, NODE, NODE>POD, POD
+  %% scene: Deux pods, une clé :: Un disque RWO tenu par l'ancien pod bloque le nouveau : `Multi-Attach error`. `Recreate` ou StatefulSet. :: !NODE, !NODE>POD
+  %% scene: Le StatefulSet garde :: `kubectl delete sts` laisse les PVC. On recrée, on retrouve les données. :: STS, STS>PVC, PVC
+  %% scene: L'uninstall supprime :: `helm uninstall` supprime les PVC du chart. En `Delete`, le disque part avec ; en `Retain`, il reste en `Released`. :: REL, REL>PVC, !PV
+  CT["<b>Couche du conteneur</b><br/>jetable"]:::ko
+  CT ~~~ EMP["<b>emptyDir</b><br/>vit avec le pod"]:::moteur
+  EMP ~~~ POD["<b>Pod db-0</b><br/>monte /var/lib/data"]:::ext
+  POD --> PVC["<b>PVC data-db-0</b><br/>20Gi · RWO · fast"]:::regle
+  STS["<b>StatefulSet db</b><br/>garde ses PVC"]:::moteur --> PVC
+  REL["<b>helm uninstall</b><br/>supprime les PVC du chart"]:::moteur --> PVC
+  PVC --> SC["<b>StorageClass fast</b><br/>catalogue du client"]:::regle
+  SC --> CSI["<b>Controller CSI</b><br/>crée le disque"]:::moteur
+  CSI --> PV["<b>PV, le disque réel</b><br/>Delete ou Retain"]:::cible
+  PV -->|"Bound"| PVC
+  PV --- NODE["<b>Plugin CSI du nœud</b><br/>monte, fsGroup"]:::moteur
+  NODE --> POD
+```
+
+## Ce que tu sais faire maintenant
+
+- **Dire ce qui survit au pod** et choisir le bon volume. [Leçon 1](/l/05-stockage/01-ce-que-le-pod-perd/)
+- **Expliquer PVC, StorageClass, PV et CSI**, et lire un `Pending`. [Leçon 2](/l/05-stockage/02-demande-catalogue-disque/)
+- **Lire RWO et RWX, la zone et la reclaim policy.** [Leçon 3](/l/05-stockage/03-ce-que-le-disque-sait-faire/)
+- **Poser les cinq questions stockage** à un client. [Leçon 4](/l/05-stockage/04-stockage-chez-le-client/)
+- **Prévoir le sort des données** et reconnaître les pannes classiques. [Leçon 5](/l/05-stockage/05-donnees-apres-le-pod/)
+
+## Les mots de l'étape
+
+| Mot | En une phrase | Au garde-meubles |
+|---|---|---|
+| Volume | Un stockage déclaré par le pod et monté dans ses conteneurs. | Un rangement hors de la chambre |
+| emptyDir | Un volume qui vit et meurt avec le pod. | Le placard de la chambre |
+| PVC | La demande de stockage écrite par le chart. | Le bon de réservation |
+| StorageClass | La recette pour fabriquer un disque. | Le catalogue des formules |
+| PV | Le disque réel, lié à une demande. | Le box |
+| CSI | Le driver qui crée, attache et monte les disques. | Le manutentionnaire |
+| RWO, RWX | Un seul nœud écrit, ou plusieurs. | Une clé, ou une par colocataire |
+| WaitForFirstConsumer | Le disque naît là où va le pod. | Box construit dans ta ville |
+| Reclaim policy | Ce que devient le disque si on supprime la demande. | Box vidé ou gardé à la résiliation |
+| fsGroup | Le groupe qui reçoit le volume au montage. | Le double de clé au bon nom |
+
+## Où tu en es dans la partie A
+
+```mermaid
+flowchart TD
+  E0["<b>✓ Étapes 0 à 4</b><br/>conteneurs, workloads, réseau"] --> E5["<b>✓ Étape 5, stockage</b><br/>PVC, classes, CSI"]
+  E5 --> E6["<b>Étape 6</b><br/>config, secrets et accès"]
+```
+
+Tu sais où vivent les données et ce qui les menace. L'étape 6 finit le socle : comment la configuration et les secrets entrent dans un pod, et qui a le droit de faire quoi.
+
+<Retenir>
+Ton chart demande, l'infrastructure du client répond. Vérifie la classe par défaut et le RWX avant d'installer, choisis `Retain` pour ce qui compte, et souviens-toi que `helm uninstall` supprime, pas `kubectl delete sts`.
+</Retenir>

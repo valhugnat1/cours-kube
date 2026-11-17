@@ -1,0 +1,72 @@
+---
+titre: "Où vont les données après un delete, un uninstall, une mise à jour"
+etape: 5
+ordre: 5
+objectif: "Prévoir le sort des volumes face à un StatefulSet, un helm uninstall, un rolling update, et reconnaître les pannes de stockage classiques."
+commandes:
+  - c: "kubectl get pvc -l app.kubernetes.io/instance=<release>"
+    d: "ce qu'une release possède comme volumes, avant un uninstall"
+  - c: "kubectl get volumeattachment"
+    d: "quel volume est attaché à quel nœud (Multi-Attach)"
+quiz:
+  - q: "Un collègue fait `kubectl delete sts db` sur une base à 2 réplicas. Que deviennent `data-db-0` et `data-db-1` ?"
+    choix:
+      - "Supprimés avec le StatefulSet"
+      - "Toujours là : un StatefulSet ne supprime pas ses PVC"
+      - "Passés en Released"
+    bonne: 1
+    explication: "Par défaut, les PVC créés par volumeClaimTemplates survivent au StatefulSet. Recréer le StatefulSet à l'identique retrouve les données."
+  - q: "Un Deployment à 1 réplica avec un PVC RWO se bloque à chaque mise à jour, avec `Multi-Attach error`. Pourquoi ?"
+    choix:
+      - "Le rolling update veut démarrer le nouveau pod pendant que l'ancien tient encore le disque"
+      - "Le PVC est trop petit pour deux pods"
+      - "La StorageClass est en Retain"
+    bonne: 0
+    explication: "Le nouveau pod attend le disque, l'ancien attend que le nouveau soit prêt. Solutions : `strategy: Recreate`, du RWX, ou un StatefulSet."
+  - q: "Chez un client, un conteneur non-root plante au démarrage avec `permission denied` sur son volume. Quel réglage regardes-tu ?"
+    choix:
+      - "La reclaim policy de la classe"
+      - "Le mode d'accès du PVC"
+      - "Le `fsGroup` du pod, qui donne le volume au groupe du conteneur"
+    bonne: 2
+    explication: "Le volume appartient à root ; `fsGroup` le donne au groupe du conteneur au montage. Sur OpenShift, on ne le fixe pas en dur : la plateforme en attribue un."
+---
+
+<Idee>
+Les données ont leur propre vie. Un StatefulSet **garde** ses PVC quand on le supprime, `helm uninstall` **supprime** ceux déclarés directement, et un disque RWO **bloque** une mise à jour qui veut deux pods en même temps.
+</Idee>
+
+<Analogie>
+Le voyageur part de l'hôtel : son **box** reste. Mais s'il **résilie le contrat** (uninstall), le box est vidé. Et un box à **une seule clé** ne peut pas servir à l'ancien et au nouveau locataire le même jour.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Un StatefulSet :: Il crée un PVC par pod, nommé d'après l'index : `data-db-0`, `data-db-1`. Le pod 0 retrouve toujours son disque. :: STS, STS>P0, P0
+  %% scene: delete sts :: Le StatefulSet disparaît, ses PVC restent. Protection contre la fausse manip : on recrée, on retrouve tout. :: !STS, P0
+  %% scene: helm uninstall :: Les PVC déclarés directement dans le chart sont supprimés, et avec `Delete`, le disque aussi. :: REL, REL>P1, !P1
+  %% scene: La protection :: L'annotation `helm.sh/resource-policy: keep` garde un PVC précis hors de l'uninstall. :: KEEP, KEEP>P1, P1
+  STS["<b>StatefulSet db</b><br/>volumeClaimTemplates"]:::moteur --> P0["<b>PVC data-db-0</b><br/>survit au delete ✔"]:::cible
+  REL["<b>Release Helm</b><br/>helm uninstall"]:::moteur --> P1["<b>PVC du chart</b><br/>supprimé ✘"]:::regle
+  KEEP["<b>Annotation keep</b><br/>resource-policy"]:::regle -.-> P1
+```
+
+Le modèle de volume d'un StatefulSet est **immuable** : un chart qui augmente une taille de disque à la mise à jour échoue, sauf s'il prévoit d'agrandir chaque PVC à part.
+
+## Les pannes de stockage à reconnaître
+
+| Symptôme | Cause probable |
+|---|---|
+| PVC `Pending` | ✘ pas de classe par défaut, classe inconnue, RWX impossible, capacité épuisée, pas de CSI. ✔ `waiting for first consumer` : normal |
+| Pod `Pending`, volume `Bound` | ✘ disque dans une autre zone, ou collé à un nœud absent |
+| `ContainerCreating` long | ✘ `Multi-Attach error` : disque RWO encore tenu ailleurs |
+| `permission denied` | ✘ `fsGroup` absent, UID arbitraire OpenShift |
+| PVC bloqué `Terminating` | ✔ un pod l'utilise encore : finalizer de protection, ne pas le forcer |
+
+<Terrain>
+Avant un `helm uninstall` sur un environnement qui compte, liste les PVC de la release : tu sais ce qui va disparaître et ce qui va rester.
+</Terrain>
+
+<Retenir>
+StatefulSet : les PVC restent. `helm uninstall` : les PVC du chart partent. RWO à 1 réplica : `Recreate`, pas `RollingUpdate`. Et `describe` dit toujours la cause.
+</Retenir>

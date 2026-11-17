@@ -1,0 +1,85 @@
+---
+titre: "RBAC : tout est refusé, sauf ce qu'on accorde"
+etape: 6
+ordre: 4
+objectif: "Lire un Role et son binding, prévoir la portée d'un ClusterRole lié dans un namespace, et prouver un droit avec auth can-i."
+commandes:
+  - c: "kubectl auth can-i --list -n <ns>"
+    d: "tout ce que tu peux faire dans ce namespace"
+  - c: "kubectl auth can-i get secrets -n <ns> --as=system:serviceaccount:<ns>:<sa>"
+    d: "tester les droits d'un ServiceAccount, sans pod"
+quiz:
+  - q: "Le ClusterRole prédéfini `view` est lié à Alice par un RoleBinding dans le namespace `platform`. Où Alice peut-elle lire ?"
+    choix:
+      - "Dans tout le cluster"
+      - "Seulement dans `platform`"
+      - "Nulle part, un ClusterRole exige un ClusterRoleBinding"
+    bonne: 1
+    explication: "Le binding décide de la portée. Un ClusterRole lié par un RoleBinding ne s'applique que dans le namespace du binding : c'est le pattern pour réutiliser les rôles prédéfinis."
+  - q: "Un client refuse de créer des ClusterRoles pour l'installation. Qu'est-ce qui risque de coincer ?"
+    choix:
+      - "Les opérateurs, qui surveillent leurs CRD dans tous les namespaces"
+      - "Les Services ClusterIP"
+      - "Les ConfigMaps"
+    bonne: 0
+    explication: "Un opérateur a besoin de droits à l'échelle du cluster. Sans ClusterRole, il faut un mode d'installation restreint à un namespace : question à poser tôt."
+  - q: "Tu dis « je n'ai pas accès » au client. Comment rendre la demande utile ?"
+    choix:
+      - "Demander cluster-admin pour gagner du temps"
+      - "Envoyer une capture de l'erreur Forbidden"
+      - "Montrer le résultat de `kubectl auth can-i` et demander le droit précis qui manque"
+    bonne: 2
+    explication: "`auth can-i` dit exactement ce qui manque (verbe, ressource, namespace). La demande est précise, le client peut l'accorder sans aller-retour."
+  - q: "Pourquoi donner `list` sur `secrets` est aussi sensible que `get` ?"
+    choix:
+      - "Ce n'est pas sensible, list ne donne que les noms"
+      - "list renvoie le contenu de tous les secrets du namespace"
+      - "list autorise aussi la suppression"
+    bonne: 1
+    explication: "Un `list` renvoie les objets complets, contenu compris. Sur les secrets, c'est tous les mots de passe du namespace."
+---
+
+<Idee>
+Dans Kubernetes, **tout est refusé par défaut**. Un **Role** liste des droits, un **binding** les donne à quelqu'un, dans un namespace ou partout. Les droits s'additionnent, il n'y a jamais d'interdiction.
+</Idee>
+
+<Analogie>
+Le **badge** n'ouvre aucune porte au départ. On y ajoute des **accès** : « étage 3, salle des archives, en lecture ». Le Role, c'est la liste des portes ; le binding, c'est l'**encodage sur le badge** de quelqu'un, pour un étage ou tout l'immeuble.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: La liste de droits :: Le Role `config-reader` autorise `get` et `list` sur les configmaps. Rien d'autre. :: ROLE
+  %% scene: Le binding :: Le RoleBinding donne ce Role au ServiceAccount `api`, dans le namespace platform. :: SA, SA>RB, RB, RB>ROLE
+  %% scene: Autorisé :: Le pod lit les configmaps de platform. :: RB>OK, OK
+  %% scene: Refusé :: Les secrets, ou un autre namespace : rien ne l'accorde, donc refusé. :: !RB>NO, !NO
+  SA["<b>ServiceAccount api</b><br/>namespace platform"]:::ext --> RB["<b>RoleBinding</b><br/>dans platform"]:::regle
+  RB --> ROLE["<b>Role config-reader</b><br/>configmaps · get, list"]:::regle
+  RB --> OK["<b>configmaps de platform</b><br/>autorisé ✔"]:::cible
+  RB -.-> NO["<b>secrets, autre namespace</b><br/>refusé ✘"]:::ko
+```
+
+## Les quatre objets
+
+| Objet | Portée |
+|---|---|
+| Role | une liste de droits, dans un namespace |
+| ClusterRole | une liste de droits, valable pour tout le cluster |
+| RoleBinding | donne un Role **ou un ClusterRole**, dans un namespace |
+| ClusterRoleBinding | donne un ClusterRole, partout |
+
+C'est **le binding qui fixe la portée**. Un ClusterRole prédéfini (`view`, `edit`, `admin`) lié par un RoleBinding ne vaut que dans ce namespace : c'est la façon propre de donner des droits sans offrir le cluster.
+
+Sur GKE, l'IAM de Google se superpose et se traduit en droits RBAC. Dans tous les cas, `kubectl auth can-i` reste la vérité finale.
+
+<Terrain>
+Les opérateurs ont besoin de ClusterRoles larges. Un client qui les refuse impose une installation restreinte à un namespace : à savoir dès le cadrage, pas le jour de l'installation.
+</Terrain>
+
+<Piege>
+Accorder `list` sur `secrets` en pensant ne donner que des noms : c'est le contenu de tous les secrets du namespace.
+</Piege>
+
+<Retenir>
+Refusé par défaut, les droits s'additionnent, le binding fixe la portée. Avant de dire « je n'ai pas accès », prouve-le avec `kubectl auth can-i`.
+</Retenir>
