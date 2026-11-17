@@ -17,6 +17,7 @@ Tout est en français. Tutoiement.
 | `src/components/` | Encadrés des leçons : `Idee`, `Analogie`, `Terrain`, `Piege`, `Retenir`, `Compare` + `Cas`. |
 | `src/scripts/scenes.ts` | Schémas animés pas à pas : lignes `%% scene:` dans un bloc mermaid (syntaxe dans `scenes-syntaxe.js`). |
 | `worker/index.ts` | Worker Cloudflare : sert le site et l'API de progression (D1). |
+| `docs/da-pixel.md` | Référence de la DA « pixel chill » partagée avec l'appli Limiter App. À suivre pour toute refonte du design du site. |
 
 ## Générer des leçons
 
