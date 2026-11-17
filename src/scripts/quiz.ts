@@ -8,6 +8,7 @@
 // reste dans « À revoir ».
 
 import { enregistrerReponse } from './progression';
+import { monterPaysages } from './paysages';
 
 export type Question = {
   id: string;
@@ -23,6 +24,7 @@ type Options = {
   afficherSource?: boolean;          // lien vers la leçon d'origine (révisions, contrôles)
   melanger?: boolean;
   maitrise?: boolean;                // les ratées reviennent jusqu'au sans-faute
+  paysage?: string;                  // paysage pixel qui fête la leçon validée (mode maîtrise)
   // Dernière question répondue (sans-faute atteint en mode maîtrise), avant l'écran final.
   // score = bonnes réponses du premier coup.
   onTermine?: (score: number, total: number) => void;
@@ -149,20 +151,16 @@ export function monterQuiz(racine: HTMLElement, questions: Question[], opts: Opt
     cur = -1;
     racine.innerHTML = opts.maitrise
       ? `<div class="quiz-fin">
-          <div class="quiz-tampon" aria-hidden="true"><b>✓</b><span>Validée</span></div>
-          <p class="quiz-fin-titre">Leçon validée</p>
+          ${opts.paysage ? `<div class="paysage quiz-paysage" data-paysage="${esc(opts.paysage)}" data-fete style="--hauteur:8.5rem"></div>` : ''}
+          <p class="quiz-fin-titre">★ Leçon validée</p>
           <p>${score === n ? 'Sans-faute du premier coup.' : `${score} sur ${n} du premier coup. Les ratées t’attendent aussi dans «\u00a0À revoir\u00a0».`}</p>
         </div>`
       : `<div class="quiz-fin">
-          <div class="quiz-anneau">
-            <svg viewBox="0 0 120 120" aria-hidden="true">
-              <circle class="fond" cx="60" cy="60" r="52" />
-              ${score ? `<circle class="valeur" cx="60" cy="60" r="52" pathLength="100" style="--pct:${(100 * score) / n}" />` : ''}
-            </svg>
-            <p class="quiz-score"><strong>${score}</strong><span>sur ${n}</span></p>
-          </div>
+          <p class="quiz-score"><strong>${score}</strong> sur ${n}</p>
+          <div class="cases quiz-cases" aria-hidden="true">${qs.map((_, k) => `<i class="${k < score ? 'pleine' : ''}" style="--i:${k}"></i>`).join('')}</div>
           <p>${score === n ? 'Tout juste.' : 'Les questions ratées sont dans «\u00a0À revoir\u00a0».'}</p>
         </div>`;
+    monterPaysages(racine);
     remonter();
     opts.onFini?.(score, n);
   };
