@@ -2,13 +2,16 @@
 //
 // GET  /api/progression -> état de progression de l'utilisateur connecté
 // PUT  /api/progression -> fusionne l'état envoyé avec celui stocké, renvoie le résultat
+// /api/precisions, /api/robot/precisions -> précisions à la demande (voir precisions.ts)
 //
 // Les fichiers statiques sont servis avant le Worker : seules les URL qui ne
 // correspondent à aucun fichier arrivent ici.
 // L'utilisateur est identifié par Cloudflare Access (en-tête Cf-Access-Authenticated-User-Email).
 // Sans Access (dev local), tout le monde partage l'identité "local".
 
-interface Env { DB: D1Database; ASSETS: Fetcher }
+import { routePrecisions, routeRobot, type EnvPrecisions } from './precisions';
+
+interface Env extends EnvPrecisions { DB: D1Database; ASSETS: Fetcher }
 
 type Etat = {
   v: 1;
@@ -80,6 +83,8 @@ export default {
       if (request.method === 'PUT') return ecrireProgression(request, env);
       return json({ erreur: 'méthode non autorisée' }, 405);
     }
+    if (pathname.startsWith('/api/robot/')) return routeRobot(request, env, pathname);
+    if (pathname.startsWith('/api/precisions')) return routePrecisions(request, env, qui(request), pathname);
     return env.ASSETS.fetch(request);
   },
 } satisfies ExportedHandler<Env>;

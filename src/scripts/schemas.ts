@@ -5,11 +5,15 @@
 import { animer } from './scenes';
 import { RE_SCENE, ROLES } from './scenes-syntaxe.js';
 
-export async function rendreSchemas() {
-  const blocs = Array.from(document.querySelectorAll<HTMLElement>('code.language-mermaid'))
+let rendus = 0;
+
+/** Rend les schémas de `racine` (toute la page par défaut ; une précision arrivée après coup sinon). */
+export async function rendreSchemas(racine: ParentNode = document) {
+  const blocs = Array.from(racine.querySelectorAll<HTMLElement>('code.language-mermaid'))
     .map((c) => c.closest('pre') as HTMLElement)
-    .filter(Boolean);
+    .filter((pre) => pre && !pre.dataset.rendu);
   if (!blocs.length) return;
+  blocs.forEach((pre) => (pre.dataset.rendu = '1'));
 
   const { default: mermaid } = await import('mermaid');
   const css = getComputedStyle(document.documentElement);
@@ -47,7 +51,8 @@ export async function rendreSchemas() {
     },
   });
 
-  for (const [i, pre] of blocs.entries()) {
+  for (const pre of blocs) {
+    const i = rendus++;
     const source = pre.textContent ?? '';
     const div = document.createElement('figure');
     div.className = 'schema';

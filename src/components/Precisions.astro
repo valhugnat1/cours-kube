@@ -1,0 +1,169 @@
+---
+// Précisions à la demande : pastille sur sélection, feuille de choix, toast de suivi.
+// Les cartes sont créées par src/scripts/precisions.ts, d'où les styles globaux (préfixe pc-).
+interface Props { lecon: string }
+const { lecon } = Astro.props;
+const choix = [
+  { niveau: 'zero', titre: 'Je ne connais pas du tout', sous: 'On repart de zéro, avec une image simple', carre: 'var(--rouge-fort)' },
+  { niveau: 'details', titre: 'Donne-moi plus de détails', sous: 'Le mécanisme : qui fait quoi, dans quel ordre', carre: 'var(--ambre-fort)' },
+  { niveau: 'exemple', titre: 'Montre-moi un exemple', sous: 'Un cas concret chez un client', carre: 'var(--pin-fort)' },
+  { niveau: 'autrement', titre: 'Explique autrement', sous: 'Un autre angle, un schéma', carre: 'var(--mer)' },
+];
+---
+<div data-precisions data-lecon={lecon}>
+  <p class="discret pc-astuce">Un passage pas clair ? Sélectionne-le : Claude te l’explique ici même.</p>
+
+  <button type="button" class="pc-pastille" hidden>
+    <span class="pc-pastille-icone" aria-hidden="true">?</span>
+    <span><span class="pc-pastille-titre">Pas compris</span> <span class="pc-pastille-texte"></span></span>
+  </button>
+
+  <dialog class="pc-feuille" aria-labelledby="pc-feuille-titre">
+    <div class="pc-feuille-int">
+      <div class="pc-feuille-tete">
+        <p id="pc-feuille-titre" class="pc-feuille-titre">Explique-moi ce passage</p>
+        <button type="button" class="pc-fermer" aria-label="Fermer">✕</button>
+      </div>
+      <p class="pc-feuille-passage"></p>
+      <div class="pc-choix">
+        {choix.map((c) => (
+          <button type="button" data-niveau={c.niveau} style={`--carre: ${c.carre}`}>
+            <span class="pc-choix-titre">{c.titre}</span>
+            <span class="pc-choix-sous">{c.sous}</span>
+          </button>
+        ))}
+      </div>
+      <label class="pc-champ">
+        <span class="etiquette-pixel">Ta question, si tu veux préciser</span>
+        <textarea rows="2" maxlength="500" placeholder="Ex. : c'est quoi la différence avec un volume normal ?"></textarea>
+      </label>
+      <p class="pc-feuille-erreur" role="alert" hidden></p>
+      <p class="pc-feuille-note">Un robot GitHub lance Claude Code sur ton abonnement. Compte 1 à 3 minutes, tu peux continuer à lire.</p>
+    </div>
+  </dialog>
+
+  <button type="button" class="pc-toast" hidden></button>
+</div>
+
+<script>
+  import { initPrecisions } from '../scripts/precisions';
+  initPrecisions();
+</script>
+
+<style is:global>
+  .pc-astuce { margin: 1.5rem 0 0; text-align: center; font-size: 0.85rem; }
+
+  /* Pastille : au-dessus de la sélection à la souris, en bas de l'écran au doigt
+     (le menu natif copier/coller du téléphone occupe le dessus de la sélection). */
+  .pc-pastille {
+    position: fixed; z-index: 20; display: flex; align-items: center; gap: 0.5rem;
+    max-width: calc(100vw - 1rem); padding: 0.45rem 0.8rem 0.45rem 0.5rem;
+    background: var(--encre); color: var(--papier); border: 2px solid var(--contour);
+    box-shadow: 3px 3px 0 var(--ombre); cursor: pointer; -webkit-tap-highlight-color: transparent;
+    font-family: 'Literata Variable', Georgia, serif; font-size: 0.9rem; line-height: 1.2; text-align: left;
+    animation: pc-apparait 120ms steps(3);
+  }
+  .pc-pastille.en-bas {
+    left: 50%; transform: translateX(-50%); bottom: calc(1rem + env(safe-area-inset-bottom));
+    padding: 0.7rem 1rem 0.7rem 0.6rem; font-size: 1rem; width: max-content;
+  }
+  .pc-pastille:active { box-shadow: none; translate: 3px 3px; }
+  .pc-pastille-icone {
+    flex: none; display: grid; place-items: center; width: 1.6rem; height: 1.6rem;
+    background: var(--ambre-fort); color: #2f3550; font-family: var(--police-pixel); font-size: 1.4rem; line-height: 1;
+  }
+  .pc-pastille-titre { font-family: var(--police-pixel); font-size: 1.25rem; line-height: 1; }
+  .pc-pastille-texte { opacity: 0.85; overflow-wrap: anywhere; }
+  @keyframes pc-apparait { from { opacity: 0; } to { opacity: 1; } }
+
+  /* Feuille de choix : feuille du bas sur téléphone, fenêtre centrée sur ordinateur. */
+  .pc-feuille {
+    padding: 0; border: 2px solid var(--contour); background: var(--surface); color: var(--encre);
+    width: min(32rem, calc(100vw - 1.5rem)); max-height: calc(100dvh - 2rem); box-shadow: 5px 5px 0 var(--ombre);
+  }
+  .pc-feuille::backdrop { background: rgb(20 27 51 / 0.45); }
+  @media (max-width: 40rem) {
+    .pc-feuille {
+      width: 100vw; max-width: 100vw; margin: auto 0 0; border-width: 2px 0 0; box-shadow: none;
+      max-height: 88dvh;
+    }
+    .pc-feuille[open] { animation: pc-monte 160ms steps(4); }
+  }
+  @keyframes pc-monte { from { transform: translateY(30%); } to { transform: none; } }
+  .pc-feuille-int { padding: 0.9rem 1rem calc(1rem + env(safe-area-inset-bottom)); }
+  .pc-feuille-tete { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+  .pc-feuille-titre { margin: 0; font-family: var(--police-pixel); font-size: 1.6rem; line-height: 1; }
+  .pc-fermer {
+    flex: none; width: 2.4rem; height: 2.4rem; background: var(--surface); color: var(--encre);
+    border: 2px solid var(--contour); font-size: 1rem; cursor: pointer;
+  }
+  .pc-feuille-passage {
+    margin: 0.6rem 0 0.8rem; padding: 0.45rem 0.7rem; border-left: 4px solid var(--ambre-fort);
+    background: var(--papier); font-size: 0.92rem; line-height: 1.45; font-style: italic;
+  }
+  .pc-choix { display: grid; gap: 0.55rem; }
+  @media (min-width: 40rem) { .pc-choix { grid-template-columns: 1fr 1fr; } }
+  .pc-choix button {
+    display: grid; grid-template-columns: auto 1fr; column-gap: 0.6rem; align-items: center; text-align: left;
+    min-height: 3.4rem; padding: 0.55rem 0.7rem; background: var(--papier); color: var(--encre);
+    border: 2px solid var(--contour); box-shadow: 3px 3px 0 var(--contour); cursor: pointer;
+    font-family: inherit; -webkit-tap-highlight-color: transparent;
+  }
+  .pc-choix button::before { content: ''; grid-row: span 2; width: 12px; height: 12px; background: var(--carre); border: 2px solid var(--contour); }
+  .pc-choix button:not(:disabled):active { transform: translate(3px, 3px); box-shadow: none; }
+  .pc-choix button:disabled { opacity: 0.5; cursor: progress; }
+  .pc-choix-titre { font-family: var(--police-pixel); font-size: 1.3rem; line-height: 1.05; }
+  .pc-choix-sous { font-size: 0.8rem; color: var(--encre-douce); line-height: 1.3; }
+  .pc-champ { display: grid; gap: 0.3rem; margin-top: 0.9rem; }
+  .pc-champ textarea {
+    width: 100%; resize: vertical; padding: 0.5rem 0.6rem; background: var(--papier); color: var(--encre);
+    border: 2px solid var(--contour); font: inherit; font-size: 1rem; /* 16 px : pas de zoom iOS */
+  }
+  .pc-feuille-erreur { margin: 0.7rem 0 0; color: var(--rouge); font-size: 0.9rem; }
+  .pc-feuille-note { margin: 0.7rem 0 0; color: var(--encre-douce); font-size: 0.78rem; line-height: 1.4; }
+
+  /* Carte de précision, glissée sous le passage. */
+  .precision { --fond: var(--surface); --carre: var(--ambre-fort); padding-bottom: 0.7rem; animation: pc-apparait 200ms steps(4); }
+  .precision .pc-cite { font-size: 0.85rem; color: var(--encre-douce); font-style: italic; margin: 0 0 0.6rem; line-height: 1.4; }
+  .precision .pc-question { font-style: normal; }
+  .precision .pc-reponse { font-size: 0.98rem; }
+  .precision .pc-reponse > :last-child { margin-bottom: 0.6rem; }
+  .precision .pc-reponse .schema { margin: 0.8rem 0; }
+  .precision.repliee .pc-cite { margin-bottom: 0.3rem; }
+
+  .pc-etapes { display: grid; grid-template-columns: repeat(4, 1fr); gap: 0.3rem; list-style: none; padding: 0; margin: 0.2rem 0 0.55rem; }
+  .pc-etapes li { margin: 0; display: grid; justify-items: center; gap: 0.25rem; text-align: center; font-family: var(--police-etiquette); font-size: 0.56rem; letter-spacing: 0.03em; text-transform: uppercase; line-height: 1.2; color: var(--encre-douce); }
+  .pc-etapes i { width: 100%; height: 8px; border: 2px solid var(--contour); background: transparent; }
+  .pc-etapes .faite i { background: var(--pin-fort); }
+  .pc-etapes .faite { color: var(--encre); }
+  .pc-etapes .courante { color: var(--encre); }
+  .pc-etapes .courante i { background: var(--ambre-fort); }
+  @media (prefers-reduced-motion: no-preference) { .pc-etapes .courante i { animation: pc-clignote 1s steps(2) infinite; } }
+  @keyframes pc-clignote { 50% { background: transparent; } }
+  .pc-activite { margin: 0 0 0.35rem; font-size: 0.92rem; line-height: 1.4; min-height: 2.8em; }
+  .pc-activite::before { content: '▸ '; color: var(--bleu); }
+  .pc-chrono { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.2rem 0.7rem; margin-bottom: 0.35rem; }
+  .pc-temps { font-family: var(--police-pixel); font-size: 2rem; line-height: 1; font-variant-numeric: tabular-nums; }
+  .pc-estim { font-size: 0.8rem; color: var(--encre-douce); }
+  .pc-barre { margin-bottom: 0.6rem; }
+  .pc-erreur { color: var(--rouge); font-size: 0.92rem; }
+  .pc-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.45rem 0.5rem; }
+  .pc-mini {
+    padding: 0.35rem 0.6rem 0.4rem; min-height: 2.2rem; background: var(--surface); color: var(--encre);
+    border: 2px solid var(--contour); box-shadow: 2px 2px 0 var(--contour); cursor: pointer;
+    font-family: var(--police-pixel); font-size: 1.1rem; line-height: 1; -webkit-tap-highlight-color: transparent;
+  }
+  .pc-mini:not(:disabled):active { transform: translate(2px, 2px); box-shadow: none; }
+  .pc-mini:disabled { opacity: 0.5; }
+  .pc-lien { font-size: 0.85rem; margin-right: auto; }
+
+  /* Toast : suit une précision quand sa carte est hors de l'écran. */
+  .pc-toast {
+    position: fixed; z-index: 15; left: 50%; transform: translateX(-50%); bottom: calc(1rem + env(safe-area-inset-bottom));
+    max-width: calc(100vw - 2rem); padding: 0.55rem 0.9rem 0.6rem; width: max-content;
+    background: var(--surface); color: var(--encre); border: 2px solid var(--contour); box-shadow: 3px 3px 0 var(--contour);
+    font-family: var(--police-pixel); font-size: 1.2rem; line-height: 1; cursor: pointer; font-variant-numeric: tabular-nums;
+  }
+  .pc-toast.prete { background: var(--pin-fort); color: #fff; }
+  .pc-pastille:not([hidden]) ~ .pc-toast { display: none; }
+</style>

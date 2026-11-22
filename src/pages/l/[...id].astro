@@ -11,6 +11,7 @@ import Terrain from '../../components/Terrain.astro';
 import Compare from '../../components/Compare.astro';
 import Cas from '../../components/Cas.astro';
 import Paysage from '../../components/Paysage.astro';
+import Precisions from '../../components/Precisions.astro';
 import { paysageDePartie } from '../../data/paysages';
 import { render } from 'astro:content';
 import { toutesLesLecons, urlLecon, questionsDe, estDuParcours, type Lecon } from '../../data/lecons';
@@ -54,6 +55,8 @@ const scene = paysageDePartie[etape.partie];
   <article class="contenu">
     <Content components={{ Retenir, Piege, Idee, Analogie, Terrain, Compare, Cas }} />
   </article>
+
+  <Precisions lecon={lecon.id} />
 
   <Commandes commandes={d.commandes} />
 
