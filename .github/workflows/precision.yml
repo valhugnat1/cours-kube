@@ -1,0 +1,42 @@
+# Précisions à la demande : déclenché par le Worker (repository_dispatch) quand Hugo sélectionne
+# un passage d'une leçon. Claude Code tourne sur l'abonnement (CLAUDE_CODE_OAUTH_TOKEN, obtenu avec
+# `claude setup-token`), en lecture seule sur le cours, et renvoie la précision au site.
+# Mise en place : README, « Précisions à la demande ».
+name: Précision à la demande
+run-name: "Précision ${{ github.event.client_payload.id }}"
+on:
+  repository_dispatch:
+    types: [precision]
+permissions:
+  contents: read
+jobs:
+  precision:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PRECISION_ID: ${{ github.event.client_payload.id }}
+      ORIGINE: ${{ github.event.client_payload.origine }}
+      SITE_URL: ${{ vars.SITE_URL }}
+      MODELE: ${{ vars.PRECISION_MODELE }}
+      ROBOT_SECRET: ${{ secrets.ROBOT_SECRET }}
+      CF_ACCESS_CLIENT_ID: ${{ secrets.CF_ACCESS_CLIENT_ID }}
+      CF_ACCESS_CLIENT_SECRET: ${{ secrets.CF_ACCESS_CLIENT_SECRET }}
+      RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Prévenir le site que le robot est réveillé
+        run: node scripts/precision-robot.mjs demarrer
+      - name: Installer Claude Code
+        run: npm install -g @anthropic-ai/claude-code --no-audit --no-fund
+      - name: Rédiger la précision
+        env:
+          CLAUDE_CODE_OAUTH_TOKEN: ${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}
+        run: node scripts/precision-robot.mjs
+      - name: Signaler l'échec au site
+        if: failure()
+        run: node scripts/precision-robot.mjs echec

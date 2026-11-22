@@ -40,6 +40,25 @@ Vérifie en navigation privée : la page de connexion Cloudflare doit apparaîtr
 
 Ouvre l'URL du Worker (`https://cours-kube.<ton-sous-domaine>.workers.dev`), connecte-toi avec le code reçu par email, puis **Partager → Sur l'écran d'accueil**. Le point en haut à droite indique la synchro : vert = synchronisé, orange = hors ligne (la progression est gardée localement et repart à la connexion suivante).
 
+## Précisions à la demande
+
+Sur une leçon, sélectionne un mot ou une phrase que tu ne comprends pas. Une pastille **« ? Pas compris »** apparaît : en bas de l'écran sur téléphone, au-dessus de la sélection sur PC. Tu choisis ensuite le type d'explication (*je ne connais pas du tout*, *plus de détails*, *un exemple*, *explique autrement*), avec ta question si tu veux. Une carte se glisse sous le passage et suit le robot en direct : étapes, ce que Claude est en train de lire, chrono et estimation. La précision arrive dans la carte au bout d'1 à 3 minutes.
+
+Comment ça marche : le Worker enregistre la demande dans D1 et réveille une GitHub Action (`repository_dispatch`). L'Action lance **Claude Code sur ton abonnement** (pas de facturation au token), en lecture seule sur `sources/` et la leçon, puis renvoie la réponse au Worker. Chaque précision compte dans tes limites d'usage Claude, comme une petite session. Le Worker plafonne à 3 précisions en parallèle et 40 par jour.
+
+### Mise en place (une fois, ~10 min)
+
+1. **Le jeton Claude.** Sur ton PC : `claude setup-token`, connecte-toi avec ton compte Claude et copie le jeton. GitHub → ce dépôt → **Settings → Secrets and variables → Actions → New repository secret** : `CLAUDE_CODE_OAUTH_TOKEN`.
+2. **Le secret partagé robot ↔ site.** Génère une chaîne aléatoire (`openssl rand -hex 32`). Ajoute-la sous le nom `ROBOT_SECRET` à deux endroits : dans les secrets GitHub du dépôt, et dans Cloudflare → Worker `cours-kube` → **Settings → Variables and Secrets** (type *Secret*).
+3. **Le jeton GitHub du Worker** (pour réveiller l'Action). GitHub → **Settings → Developer settings → Fine-grained tokens** : accès à ce seul dépôt, permission **Contents : Read and write**. Ajoute-le au Worker comme secret `GITHUB_TOKEN`.
+4. **Laisser passer le robot à travers Cloudflare Access.** Zero Trust → **Access → Service credentials → Service Tokens → Create** (nom `robot-precisions`, durée sans expiration). Copie le *Client ID* et le *Client Secret* dans les secrets GitHub `CF_ACCESS_CLIENT_ID` et `CF_ACCESS_CLIENT_SECRET`. Puis dans l'application Access du site, **ajoute une politique** : action **Service Auth**, règle *Service Token* = `robot-precisions`.
+5. **L'adresse du site.** GitHub → **Settings → Secrets and variables → Actions → Variables** : `SITE_URL` = `https://cours-kube.<ton-sous-domaine>.workers.dev`. Le robot n'envoie son secret qu'à cette adresse et à ses aperçus de branche.
+6. Optionnel : variable `PRECISION_MODELE` (`sonnet` par défaut, `opus` pour des explications plus fouillées mais plus lentes).
+
+Le workflow ne se déclenche qu'une fois `.github/workflows/precision.yml` présent sur `main` (règle GitHub pour `repository_dispatch`). La table D1 `precisions` se crée toute seule au premier appel.
+
+En cas de souci, la carte affiche l'erreur et un lien **« Voir le robot sur GitHub »** vers le run (logs complets, consigne envoyée à Claude, réponse brute).
+
 ## Générer les leçons suivantes
 
 Depuis l'app Claude (onglet **Code**) ou claude.ai/code, sur ce dépôt (l'app GitHub Claude doit y être installée) :
