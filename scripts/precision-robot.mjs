@@ -101,6 +101,16 @@ function decrire(outil, entree = {}) {
   return `Claude utilise ${outil}`;
 }
 
+/** Le jeton affiché par `claude setup-token` passe souvent sur deux lignes : on retire espaces et retours copiés avec. */
+function jetonClaude() {
+  const brut = process.env.CLAUDE_CODE_OAUTH_TOKEN ?? '';
+  const jeton = brut.replace(/\s+/g, '');
+  if (!jeton) sortir('secret CLAUDE_CODE_OAUTH_TOKEN absent');
+  console.log(`Jeton Claude : ${jeton.slice(0, 12)}… (${jeton.length} caractères${jeton.length !== brut.length ? `, ${brut.length - jeton.length} espaces ou retours à la ligne retirés` : ''})`);
+  if (!jeton.startsWith('sk-ant-oat')) console.log('⚠ Le jeton ne commence pas par sk-ant-oat : ce n’est probablement pas celui de `claude setup-token`.');
+  return jeton;
+}
+
 async function rediger() {
   const d = await api('GET');
   if (d.annulee) { console.log('Demande supprimée entre-temps, rien à faire.'); return; }
@@ -128,7 +138,7 @@ async function rediger() {
     '--max-turns', '14',
     '--allowedTools', 'Read', 'Grep', 'Glob',
     '--disallowedTools', 'Bash', 'Edit', 'Write', 'WebFetch', 'WebSearch', 'Task',
-  ], { stdio: ['ignore', 'pipe', 'inherit'] });
+  ], { stdio: ['ignore', 'pipe', 'inherit'], env: { ...process.env, CLAUDE_CODE_OAUTH_TOKEN: jetonClaude() } });
 
   signaler({ statut: 'redaction', activite: 'Claude ouvre la leçon' }, true);
   let resultat = null;
@@ -161,7 +171,9 @@ async function rediger() {
   if (annulee) { console.log('Demande supprimée pendant la rédaction : arrêt.'); return; }
   if (!resultat || resultat.is_error || code !== 0) {
     const pourquoi = resultat?.subtype === 'error_max_turns' ? 'Claude a tourné trop longtemps sans conclure.'
-      : `Claude Code s’est arrêté (code ${code}) : ${String(resultat?.result ?? resultat?.subtype ?? 'sans message').slice(0, 300)}`;
+      : resultat?.api_error_status === 401
+        ? 'Claude refuse le jeton (401) : relance `claude setup-token` et remplace le secret GitHub CLAUDE_CODE_OAUTH_TOKEN.'
+        : `Claude Code s’est arrêté (code ${code}) : ${String(resultat?.result ?? resultat?.subtype ?? 'sans message').slice(0, 300)}`;
     await api('POST', { statut: 'erreur', erreur: pourquoi });
     sortir(pourquoi);
   }
