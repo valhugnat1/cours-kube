@@ -147,8 +147,11 @@ async function rediger() {
           if (bloc.type === 'tool_use') { console.log(`→ ${bloc.name} ${JSON.stringify(bloc.input)}`); signaler({ activite: decrire(bloc.name, bloc.input) }); }
           else if (bloc.type === 'text' && bloc.text.trim()) signaler({ activite: 'Claude rédige ta précision' });
         }
+      } else if (ev.type === 'system' && ev.subtype === 'init') {
+        console.log(`Claude Code ${ev.claude_code_version ?? ''} · modèle ${ev.model ?? '?'} · authentification ${ev.apiKeySource ?? '?'}`);
       } else if (ev.type === 'result') {
         resultat = ev;
+        if (ev.is_error) console.log(`--- résultat en erreur ---\n${JSON.stringify(ev, null, 2)}`);
       }
     }
   });
@@ -158,7 +161,7 @@ async function rediger() {
   if (annulee) { console.log('Demande supprimée pendant la rédaction : arrêt.'); return; }
   if (!resultat || resultat.is_error || code !== 0) {
     const pourquoi = resultat?.subtype === 'error_max_turns' ? 'Claude a tourné trop longtemps sans conclure.'
-      : `Claude Code s’est arrêté (code ${code}${resultat?.subtype ? `, ${resultat.subtype}` : ''}). Vérifie le secret CLAUDE_CODE_OAUTH_TOKEN et ton quota.`;
+      : `Claude Code s’est arrêté (code ${code}) : ${String(resultat?.result ?? resultat?.subtype ?? 'sans message').slice(0, 300)}`;
     await api('POST', { statut: 'erreur', erreur: pourquoi });
     sortir(pourquoi);
   }
