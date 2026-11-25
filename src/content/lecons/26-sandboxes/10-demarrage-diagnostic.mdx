@@ -1,0 +1,99 @@
+---
+titre: "Le démarrage à froid, et diagnostiquer"
+etape: 26
+ordre: 10
+objectif: "Décomposer le démarrage à froid d'une sandbox, citer les leviers, et diagnostiquer dans l'ordre pod, contrôleur, nœud."
+commandes:
+  - c: "kubectl describe pod <pod>"
+    d: "les events : FailedScheduling, ImagePullBackOff, FailedCreatePodSandBox"
+  - c: "kubectl logs deploy/<controleur> -n <ns>"
+    d: "le contrôleur a-t-il reçu la demande, créé le pod, été refusé ?"
+  - c: "crictl pods ; crictl ps -a"
+    d: "sur le nœud : les sandboxes et conteneurs vus par containerd"
+  - c: "journalctl -u containerd"
+    d: "sur le nœud : les erreurs du shim et du runtime"
+quiz:
+  - q: "Une sandbox met 25 secondes à démarrer. Les events montrent `Pulling image` pendant 20 secondes. Quel levier aide le plus ?"
+    choix:
+      - "Passer de Kata à gVisor"
+      - "Pré-télécharger l'image sur les nœuds du pool sandbox"
+      - "Augmenter la limite CPU de la sandbox"
+    bonne: 1
+    explication: "Le temps passe dans le pull de l'image. Une image déjà présente sur le nœud retire cette étape. Changer de runtime ne joue que sur quelques fractions du démarrage."
+  - q: "L'agent demande une sandbox, et aucun pod n'apparaît dans le namespace du tenant. Où regardes-tu ?"
+    choix:
+      - "Les logs de containerd sur le nœud"
+      - "Les events du pod"
+      - "Les logs du contrôleur qui crée les sandboxes"
+    bonne: 2
+    explication: "Sans pod, il n'y a ni events de pod ni rien sur un nœud. La question est : le contrôleur a-t-il reçu la demande, et a-t-il été refusé (RBAC, quota, Pod Security) ?"
+  - q: "Le produit veut des sandboxes neuves à chaque tâche, mais un démarrage en moins d'une seconde. Quel compromis proposes-tu ?"
+    choix:
+      - "Un pool de sandboxes prêtes, neuves mais créées à l'avance"
+      - "Réutiliser la même sandbox d'une tâche à l'autre"
+      - "Passer les sandboxes en runc"
+    bonne: 0
+    explication: "Le pool garde des sandboxes déjà démarrées, jamais servies. Chacune reste neuve, mais on n'attend plus sa création. Le prix : des ressources réservées en permanence. Réutiliser casse le « jetable »."
+---
+
+<Idee>
+Une sandbox neuve paie à chaque fois le **démarrage à froid** : trouver un nœud, tirer l'image, lancer le runtime, s'initialiser, copier les fichiers. Pour aller vite, on prépare **à l'avance**. Pour diagnostiquer, on descend : le pod, le contrôleur, le nœud.
+</Idee>
+
+<Analogie>
+Construire un logement à chaque location, puis le démolir, c'est long. On garde des **logements meublés prêts à louer** (le pool), les **matériaux déjà sur place** (images pré-téléchargées), ou des **maisons préfabriquées** (snapshots).
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Scheduling :: Trouver un nœud avec la place et le bon runtime. Un quota plein ou un pool saturé bloque ici. :: S
+  %% scene: L'image :: Si elle n'est pas sur le nœud, on la tire : souvent l'étape la plus longue. :: S>I, I
+  %% scene: Le runtime :: runc crée le conteneur, gVisor lance son Sentry, Kata démarre sa VM. :: I>RT, RT
+  %% scene: Prête :: Le processus s'initialise et les fichiers sont synchronisés. La sandbox reçoit le code. :: RT>F, F
+  %% scene: Le pool :: Avec un pool de sandboxes prêtes, tout ce chemin est fait à l'avance : on attribue une sandbox déjà démarrée. :: PL, PL>F
+  S["<b>① Scheduling</b><br/>nœud, quota"]:::moteur --> I["<b>② Pull de l'image</b><br/>souvent le plus long"]:::moteur
+  I --> RT["<b>③ Runtime</b><br/>conteneur, Sentry ou VM"]:::moteur
+  RT --> F["<b>④ ⑤ Initialisation</b><br/>et fichiers synchronisés"]:::cible
+  PL["<b>Pool prêt</b><br/>créé à l'avance"]:::regle -.->|"raccourci"| F
+```
+
+## Les leviers
+
+| Levier | Ce qu'il retire |
+|---|---|
+| Pool de sandboxes prêtes | ✔ tout le chemin, au prix de ressources réservées |
+| Images pré-téléchargées sur les nœuds | ✔ le pull |
+| Snapshots, selon le runtime | ✔ une partie du runtime et de l'initialisation |
+
+## Diagnostiquer, dans l'ordre
+
+| Où | Ce que tu y lis |
+|---|---|
+| ① Events du pod | ✔ `FailedScheduling`, `ImagePullBackOff`, `FailedCreatePodSandBox` |
+| ② Logs du contrôleur | ✔ demande reçue ? pod créé ? refusé par RBAC, quota, Pod Security ? |
+| ③ Le nœud | ✔ `crictl`, logs de containerd : erreurs du shim ou du runtime |
+
+<Compare>
+<Cas titre="Créée à la demande">
+
+- Neuve à chaque tâche
+- Paie tout le démarrage
+- Aucune réserve
+
+</Cas>
+<Cas titre="Pool prêt">
+
+- Neuve aussi
+- Attribuée tout de suite
+- Ressources réservées
+
+</Cas>
+</Compare>
+
+<Terrain>
+Pas de pod du tout ? Ne cherche pas sur le nœud : commence par le contrôleur. Un pod bloqué ? Ses events disent presque toujours à quel étage.
+</Terrain>
+
+<Retenir>
+« Jetable » et « rapide » s'opposent. Le pool de sandboxes prêtes est le compromis : des sandboxes neuves, mais créées avant qu'on en ait besoin.
+</Retenir>

@@ -1,0 +1,90 @@
+---
+titre: "Récap : isoler le code d'un agent, de l'API au noyau"
+etape: 26
+ordre: 80
+type: recap
+objectif: "Revoir toute l'étape sur un seul schéma : l'API, les garde-fous, la RuntimeClass, la chaîne du nœud, le mur, le réseau et le pool."
+---
+
+Le code d'un agent est non fiable par définition : on ne le filtre pas, on le **contient**. Un conteneur ordinaire ne suffit pas, parce que tous partagent le noyau du nœud. On change donc de mur (gVisor, Kata), et on l'entoure de garde-fous.
+
+Le fil rouge, ce sont **trois murs pour trois questions** : l'API décide **qui** peut créer une sandbox, le cluster isole les tenants **entre eux**, le runtime isole la sandbox **du nœud**. Aucun ne remplace les autres. Et le mur du runtime se pose **sur le nœud**, pas dans le YAML. Regarde les couleurs : le violet est ce que tu déclares, l'ambre ce qui travaille, le vert la sandbox, le bleu ce qui vient de dehors. Lance le pas à pas avec ▶, ou avance avec ›.
+
+```mermaid
+flowchart TD
+  %% scene: Le code arrive :: L'agent a lu un fichier piégé : son code est hostile par définition. Il demande une sandbox à l'API. :: AG, AG>API
+  %% scene: Qui appelle :: Premier mur : l'API vérifie l'identité et le tenant. Sans ça, Kata ne protège rien. :: API
+  %% scene: Les garde-fous :: Le pod est créé dans le namespace du tenant : RBAC, quota, LimitRange, Pod Security. Un pod privilégié est refusé ici. :: API>NS, NS, NS>POD, POD
+  %% scene: Le choix du mur :: Le pod demande runtimeClassName: gvisor. La RuntimeClass l'envoie sur le pool sandbox et ajoute son overhead. :: POD>RC, RC, RC>KB, KB
+  %% scene: La chaîne :: Le kubelet appelle containerd par CRI, qui lance le shim, qui appelle runsc ou Kata. :: KB>CD, CD, CD>SH, SH, SH>RT, RT
+  %% scene: Préparer le nœud :: Ce runtime, un DaemonSet privilégié l'a installé et déclaré dans config.toml, sur chaque nœud du pool. :: DS, DS>CFG, CFG, CFG>CD
+  %% scene: Runtime absent :: Sur un nœud sans ce runtime : containerd ne sait pas quel shim lancer. ContainerCreating, FailedCreatePodSandBox. :: !CFG, !CD>SH
+  %% scene: L'image :: containerd tire l'image du registry du client. Air-gapped : toutes les images copiées. Pas de pull Always. :: REG, REG>CD
+  %% scene: Le mur :: Le Sentry de gVisor ou la VM de Kata traite les appels système. Le noyau du nœud n'en voit qu'une poignée, filtrée. :: RT>K, K
+  %% scene: Le réseau :: La NetworkPolicy ne laisse sortir que vers le proxy. L'endpoint de metadata du cloud et Internet en direct sont bloqués. :: POD>NP, NP
+  %% scene: Le pool :: Pour démarrer vite sans réutiliser : des sandboxes neuves, créées à l'avance, attribuées à la demande. :: PL, PL>POD, POD
+  %% scene: Le diagnostic :: Les events du pod, puis les logs du contrôleur, puis le nœud : crictl et les logs de containerd. :: POD, API, CD
+  AG["<b>Agent IA</b><br/>code non fiable"]:::ext --> API["<b>Control plane</b><br/>API et contrôleur"]:::moteur
+  API --> NS["<b>ns tenant-acme</b><br/>RBAC, quota, PSA"]:::regle
+  NS -->|"admis"| POD["<b>Pod sandbox</b><br/>runtimeClassName: gvisor"]:::cible
+  PL["<b>Pool prêt</b><br/>créé à l'avance"]:::regle -.-> POD
+  POD --> RC["<b>RuntimeClass</b><br/>handler: runsc"]:::regle
+  POD --> NP["<b>NetworkPolicy</b><br/>proxy ✔ metadata ✘"]:::regle
+  RC -->|"pool sandbox"| KB["<b>kubelet</b><br/>nœud sandbox"]:::moteur
+  NP ~~~ DS["<b>DaemonSet</b><br/>privilégié"]:::moteur
+  DS --> CFG["<b>config.toml</b><br/>runtimes déclarés"]:::regle
+  KB ~~~ REG["<b>Registry</b><br/>images copiées"]:::ext
+  KB -->|"CRI"| CD["<b>containerd</b>"]:::moteur
+  REG --> CD
+  CFG --> CD
+  CD --> SH["<b>shim</b><br/>containerd-shim-runsc-v1"]:::moteur
+  SH --> RT["<b>runsc ou Kata</b><br/>Sentry ou micro-VM"]:::moteur
+  RT --> K["<b>Noyau du nœud</b><br/>appels filtrés"]:::moteur
+```
+
+## Ce que tu sais faire maintenant
+
+- **Dire ce qu'est une sandbox** et pourquoi le code d'un agent est non fiable. [Leçon 1](/l/26-sandboxes/01-sandbox-pourquoi/)
+- **Expliquer ce qu'isole un conteneur**, et sa limite : le noyau partagé. [Leçon 2](/l/26-sandboxes/02-conteneur-pas-vm/)
+- **Peser le mode privilégié et FUSE**, et proposer la synchronisation. [Leçon 3](/l/26-sandboxes/03-privilegie-fuse/)
+- **Tracer la chaîne** kubelet, containerd, shim, runtime. [Leçon 4](/l/26-sandboxes/04-chaine-runtime/)
+- **Choisir entre gVisor et Kata** selon les nœuds du client. [Leçon 5](/l/26-sandboxes/05-gvisor-kata/)
+- **Lire une RuntimeClass** et reconnaître le runtime absent. [Leçon 6](/l/26-sandboxes/06-runtimeclass/)
+- **Séparer les trois questions** d'isolation d'un service multi-tenant. [Leçon 7](/l/26-sandboxes/07-multi-tenant/)
+- **Poser les garde-fous** d'un namespace de tenant, egress compris. [Leçon 8](/l/26-sandboxes/08-garde-fous/)
+- **Poser les bonnes questions** au client avant d'installer. [Leçon 9](/l/26-sandboxes/09-questions-client/)
+- **Accélérer le démarrage et diagnostiquer** dans l'ordre pod, contrôleur, nœud. [Leçon 10](/l/26-sandboxes/10-demarrage-diagnostic/)
+
+## Les mots de l'étape
+
+| Mot | En une phrase | Dans l'immeuble |
+|---|---|---|
+| Sandbox | Un environnement jetable pour du code non fiable. | Le logement prêté pour une nuit |
+| Noyau | Le cœur du système, partagé par tous les conteneurs d'un nœud. | La plomberie commune |
+| Namespaces | Ce qu'un processus voit. | Les murs |
+| cgroups | Ce qu'un processus consomme. | Les compteurs |
+| seccomp, capabilities | Ce qu'un processus peut demander au noyau. | Le règlement des robinets |
+| Mode privilégié | Presque tous les droits sur le nœud. | Les clés du local technique |
+| Shim | Le lien entre containerd et le runtime, la prise où l'on branche. | Le contrat de sous-traitance |
+| gVisor | Un noyau en espace utilisateur qui filtre les appels système. | Le sas et le concierge |
+| Kata | Une micro-VM par pod, avec son propre noyau. | La maison individuelle |
+| KVM | La virtualisation matérielle dont Kata a besoin. | Le terrain constructible |
+| RuntimeClass | Le nom Kubernetes d'un runtime, choisi par le pod. | La case cochée sur le bon de commande |
+| Control plane | L'API qui reçoit les demandes et crée les sandboxes. | L'agence de location |
+| Tenant | Le client qui possède des sandboxes, dans son namespace. | Le locataire et son étage |
+| Pool prêt | Des sandboxes neuves créées à l'avance. | Les logements meublés prêts à louer |
+
+## Où tu en es dans la partie F
+
+```mermaid
+flowchart TD
+  C["<b>Parties A à E</b><br/>le parcours principal"] --> F1["<b>Étape 25</b><br/>ClickHouse chez un client"]
+  C --> F2["<b>✓ Étape 26</b><br/>isoler du code non fiable"]
+  F2 --> L["<b>Le lab</b><br/>gVisor sur kind"]
+```
+
+Comme l'étape 25, c'est un cas pratique hors du parcours principal : il applique à une brique précise l'architecture de l'étape 1 (kubelet, containerd), le réseau de l'étape 4, les accès de l'étape 6 et l'identité de l'étape 13. Le lab te fait brancher gVisor à la main sur ton cluster kind, exactement ce qu'un DaemonSet ferait chez le client.
+
+<Retenir>
+Trois murs pour trois questions : l'API décide qui crée, le cluster isole les tenants, le runtime isole du nœud. Le runtime s'installe sur les nœuds, la RuntimeClass ne fait que le choisir. Et avant d'installer, on vérifie les nœuds, les droits, les images et le réseau.
+</Retenir>

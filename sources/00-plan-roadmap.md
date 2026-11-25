@@ -191,6 +191,13 @@ Des briques précises à déployer chez un client, de bout en bout. Hors du parc
 - Mise à jour, sauvegarde prouvée, diagnostic sur trois étages (pod, opérateur, base)
 - *Exercice : opérateur + Keeper + 2 réplicas sur kind, réplication, perte d'un pod, changement de version, PVC conservés*
 
+### Étape 26 · Isoler du code non fiable : sandboxes, gVisor, Kata
+- Le risque : une sandbox (isolation, limites, durée de vie courte), pourquoi le code d'un agent est non fiable (prompt injection) ; ce qu'isole un conteneur et ce qu'il n'isole pas (noyau partagé) ; mode privilégié et FUSE
+- Les options : la chaîne kubelet → CRI → containerd → shim → runtime ; gVisor contre Kata ; RuntimeClass (handler, overhead, scheduling)
+- Le multi-tenant : control plane et data plane, les trois questions d'isolation ; garde-fous Kubernetes (RBAC, quotas, NetworkPolicy egress, Pod Security) ; les questions au client
+- Le faire vivre : démarrage à froid, pool de sandboxes prêtes, diagnostic pod, contrôleur, nœud
+- *Exercice : noyau partagé, RuntimeClass orpheline, gVisor installé à la main sur kind, garde-fous d'un namespace de tenant*
+
 ---
 
 ## Fichiers du cours

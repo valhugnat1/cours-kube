@@ -1,0 +1,88 @@
+---
+titre: "La chaîne qui lance un conteneur"
+etape: 26
+ordre: 4
+objectif: "Tracer la chaîne kubelet → CRI → containerd → shim → runtime, et expliquer pourquoi changer de runtime modifie les nœuds."
+commandes:
+  - c: "crictl info"
+    d: "sur le nœud : la configuration CRI, dont les runtimes déclarés"
+  - c: "kubectl get runtimeclass"
+    d: "les runtimes que le cluster sait demander"
+quiz:
+  - q: "Tu ajoutes `runtimeClassName: kata` dans le chart, sans rien faire d'autre. Les nœuds du client n'ont que runc. Que se passe-t-il ?"
+    choix:
+      - "Le pod démarre avec runc, le champ est ignoré"
+      - "containerd télécharge Kata automatiquement au premier pod"
+      - "Le pod ne démarre pas : le nœud ne connaît pas ce runtime"
+    bonne: 2
+    explication: "Le YAML choisit un runtime parmi ceux que le nœud connaît déjà. Installer les binaires et déclarer le runtime dans containerd est un travail sur le nœud, que personne ne fait à ta place."
+  - q: "Dans la chaîne, quel maillon sert de prise pour brancher gVisor ou Kata à la place de runc ?"
+    choix:
+      - "Le kubelet"
+      - "Le shim lancé par containerd"
+      - "L'API server"
+    bonne: 1
+    explication: "containerd lance un shim par pod, choisi d'après la configuration du runtime. Chaque runtime a le sien (`containerd-shim-runsc-v1`, `containerd-shim-kata-v2`). Le kubelet, lui, parle seulement CRI à containerd."
+  - q: "Sur un cluster managé de 30 nœuds, comment installe-t-on en général un nouveau runtime sur tous les nœuds ?"
+    choix:
+      - "Avec un DaemonSet privilégié qui écrit les binaires et la config de containerd sur chaque nœud"
+      - "Avec une RuntimeClass, qui installe le runtime"
+      - "Avec un Helm chart ordinaire, sans privilège"
+    bonne: 0
+    explication: "Il faut écrire sur le système de fichiers du nœud et redémarrer containerd : seul un pod privilégié par nœud peut le faire (c'est ce que fait `kata-deploy`), sauf si le fournisseur le fait dans l'image du nœud, comme GKE Sandbox. La RuntimeClass ne fait que choisir."
+---
+
+<Idee>
+Quand un pod arrive sur un nœud, le **kubelet** demande à **containerd** de le créer, qui lance un **shim**, qui appelle le **runtime** : runc, gVisor ou Kata. Le shim est la prise où l'on branche un autre runtime, et cette prise se configure **sur chaque nœud**.
+</Idee>
+
+<Analogie>
+Le kubelet est le **gestionnaire de l'immeuble** qui reçoit la commande d'un logement. containerd est l'**entreprise générale**. Le shim est le **contrat de sous-traitance**, et le runtime l'**équipe qui construit** : appartement, appartement à sas ou maison. L'entreprise ne fait appel qu'aux sous-traitants de **sa liste**.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: La commande :: Le scheduler a placé le pod. Le kubelet du nœud le voit et appelle containerd par l'interface CRI. :: KB, KB>CD, CD
+  %% scene: La liste :: containerd lit config.toml pour savoir quels runtimes il connaît et quel shim lancer pour chacun. :: CFG, CFG>CD
+  %% scene: Le shim :: Un shim par pod fait le lien entre containerd et le runtime bas niveau. :: CD>SH, SH
+  %% scene: Le runtime :: Le shim appelle runc, runsc (gVisor) ou Kata, qui crée vraiment l'isolation. :: SH>RT, RT
+  %% scene: Absent de la liste :: Un runtime qui n'est pas dans config.toml : containerd ne sait pas quel shim lancer. Le pod ne démarre pas. :: !CFG, !CD>SH
+  KB["<b>kubelet</b><br/>voit le pod assigné"]:::moteur -->|"CRI"| CD["<b>containerd</b><br/>tire l'image, prépare"]:::moteur
+  CFG["<b>config.toml</b><br/>runtimes déclarés"]:::regle --> CD
+  CD --> SH["<b>shim</b><br/>containerd-shim-runsc-v1"]:::moteur
+  SH --> RT["<b>runc, runsc ou kata</b><br/>crée l'isolation"]:::cible
+```
+
+## La liste, sur le nœud
+
+Chaque runtime est déclaré dans la configuration de containerd, avec un nom (le **handler**) et un type de shim :
+
+```toml
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc]
+  runtime_type = "io.containerd.runsc.v1"   # containerd-shim-runsc-v1
+[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata]
+  runtime_type = "io.containerd.kata.v2"    # containerd-shim-kata-v2
+```
+
+Avec containerd 2.x (format `version = 3`), le chemin commence par `plugins."io.containerd.cri.v1.runtime"`.
+
+## Changer de runtime, c'est toucher le nœud
+
+| Étape | Qui la fait |
+|---|---|
+| Installer les binaires du runtime et du shim | ✘ pas le YAML du pod : un DaemonSet privilégié ou l'image du nœud |
+| Déclarer le runtime dans `config.toml` | ✘ idem, sur chaque nœud |
+| Redémarrer containerd | ✘ idem |
+| Choisir le runtime pour un pod | ✔ le YAML : `runtimeClassName` (leçon 6) |
+
+<Terrain>
+Chez un client, l'installation passe souvent par un **DaemonSet privilégié** (`kata-deploy` pour Kata), ou par le fournisseur (GKE Sandbox pour gVisor). Donc une question à poser tôt : as-tu le droit de toucher aux nœuds ?
+</Terrain>
+
+<Piege>
+Croire que changer de runtime se fait seulement dans le YAML du pod. Le YAML choisit dans la liste du nœud ; il ne l'allonge pas.
+</Piege>
+
+<Retenir>
+kubelet, CRI, containerd, shim, runtime. Le runtime se branche sur chaque nœud, dans la configuration de containerd ; le pod ne fait que choisir.
+</Retenir>

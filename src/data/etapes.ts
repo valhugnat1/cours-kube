@@ -40,6 +40,7 @@ export const etapes: Etape[] = [
   { n: 23, partie: 'E', titre: 'Communication technique avec un client', dossier: '23-communication-client' },
   { n: 24, partie: 'E', titre: 'GitOps, opérations, certification', dossier: '24-gitops-certif' },
   { n: 25, partie: 'F', titre: 'Déployer ClickHouse chez un client', dossier: '25-clickhouse' },
+  { n: 26, partie: 'F', titre: 'Isoler du code non fiable : sandboxes, gVisor, Kata', dossier: '26-sandboxes' },
 ];
 
 export const etapeParNumero = (n: number) => etapes.find((e) => e.n === n)!;

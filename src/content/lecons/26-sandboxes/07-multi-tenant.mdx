@@ -1,0 +1,94 @@
+---
+titre: "Multi-tenant : control plane, data plane, tenants"
+etape: 26
+ordre: 7
+objectif: "Situer control plane, data plane et namespaces de tenants, et séparer les trois questions d'isolation."
+quiz:
+  - q: "Un client a déployé Kata pour toutes les sandboxes. Mais l'API qui les crée accepte n'importe quel appel du réseau interne, avec le nom du tenant en paramètre. Qu'en dis-tu ?"
+    choix:
+      - "C'est sûr : Kata isole chaque sandbox dans sa VM"
+      - "Le risque est seulement de saturer les nœuds"
+      - "N'importe qui peut lancer du code au nom d'un autre tenant : Kata ne répond pas à cette question"
+    bonne: 2
+    explication: "Kata isole la sandbox du nœud. Il ne dit rien sur qui a le droit d'en créer, ni au nom de qui. C'est l'authentification et l'autorisation de l'API, une question à part."
+  - q: "Les sandboxes tournent dans le cluster de l'application. Une campagne lance des milliers de créations par heure, et l'API de la plateforme ralentit. Que proposes-tu ?"
+    choix:
+      - "Passer les sandboxes de gVisor à Kata"
+      - "Mettre les sandboxes dans un cluster de data plane séparé"
+      - "Augmenter la limite mémoire des pods de l'application"
+    bonne: 1
+    explication: "Dans le même cluster, les sandboxes partagent l'API server et les nœuds avec l'application : une rafale de créations la met sous pression. Un cluster séparé coûte un cluster de plus, mais isole cette charge."
+  - q: "Dans ce vocabulaire, à quoi correspond un instance type ?"
+    choix:
+      - "Un preset de taille : CPU, mémoire, disque"
+      - "Le runtime choisi, gVisor ou Kata"
+      - "Le cluster où tourne la sandbox"
+    bonne: 0
+    explication: "L'instance type est la taille du logement : « small », « large ». Le cluster et le namespace, c'est la région. Le runtime, c'est la RuntimeClass."
+---
+
+<Idee>
+Un service de sandboxes a deux plans : un **control plane**, l'API qui reçoit les demandes et crée les pods, et un **data plane**, le ou les clusters où ils tournent, avec un **namespace par tenant**. Isoler, c'est répondre à trois questions distinctes.
+</Idee>
+
+<Analogie>
+Le control plane est l'**agence de location** : elle reçoit les demandes et signe les baux. Le data plane, ce sont les **résidences**, avec un **étage par locataire**. La taille du logement (T2, T4), c'est l'instance type.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: La demande :: L'application demande une sandbox pour le tenant acme, taille small, région eu-1. :: APP, APP>API, API
+  %% scene: Qui a le droit :: L'API vérifie qui appelle et au nom de quel tenant. Sans cette vérification, le reste ne protège rien. :: API
+  %% scene: La création :: Le contrôleur crée le pod dans le namespace du tenant, sur le cluster de la région. :: API>NA, NA
+  %% scene: Un étage par tenant :: Le tenant globex a son propre namespace. Les deux ne se voient pas. :: API>NB, NB
+  APP["<b>Application</b><br/>agent du tenant acme"]:::ext --> API["<b>Control plane</b><br/>API et contrôleur"]:::moteur
+  subgraph DP["Data plane · cluster eu-1"]
+    NA["<b>ns tenant-acme</b><br/>sandbox small"]:::cible
+    NB["<b>ns tenant-globex</b><br/>sandbox large"]:::cible
+  end
+  API --> NA
+  API --> NB
+```
+
+## Le vocabulaire
+
+| Mot | Ce que c'est |
+|---|---|
+| Tenant | Le client ou l'organisation qui possède les sandboxes |
+| Région | Un cluster de data plane et un namespace dedans |
+| Instance type | Un preset : CPU, mémoire, disque |
+
+Les noms exacts dépendent de ton produit : à vérifier.
+
+## Trois questions à ne pas confondre
+
+| Question | Qui y répond |
+|---|---|
+| La sandbox est-elle isolée **du nœud** ? | ✔ le runtime : gVisor, Kata |
+| Les sandboxes sont-elles isolées **entre elles** ? | ✔ namespaces, RBAC, NetworkPolicy, quotas (leçon 8) |
+| **Qui** a le droit d'appeler l'API qui les crée ? | ✔ l'authentification du control plane (étape 13) |
+
+<Compare>
+<Cas titre="Même cluster">
+
+- Un seul cluster à opérer
+- API server partagé
+- L'appli subit les rafales
+
+</Cas>
+<Cas titre="Cluster séparé">
+
+- Charge isolée
+- Un cluster de plus
+- Réseau à ouvrir vers lui
+
+</Cas>
+</Compare>
+
+<Terrain>
+Le projet `kubernetes-sigs/agent-sandbox` est un exemple de contrôleur générique : une ressource `Sandbox`, un modèle, une demande et un pool de sandboxes prêtes, au-dessus d'une RuntimeClass. Ton produit a peut-être le sien ; le principe est le même.
+</Terrain>
+
+<Retenir>
+Une isolation forte du runtime ne remplace pas l'authentification de l'API. Trois questions, trois réponses : le runtime, le cluster, l'API.
+</Retenir>
