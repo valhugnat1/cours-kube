@@ -1,0 +1,75 @@
+---
+titre: "Avant d'installer : les questions au client"
+etape: 26
+ordre: 9
+objectif: "Lister les questions à poser au client avant d'installer des sandboxes, et ce qui casse sans réponse."
+quiz:
+  - q: "Client air-gapped. Tu as copié toutes les images du chart dans son registry. Au premier usage, l'agent lance une sandbox avec une image choisie à l'exécution, et elle reste en `ImagePullBackOff`. Qu'as-tu oublié de demander ?"
+    choix:
+      - "Si les nœuds ont KVM"
+      - "Si toutes les images, y compris celles ajoutées à l'exécution, sont copiées dans le registry interne"
+      - "Si le mode privilégié est accepté"
+    bonne: 1
+    explication: "Les images des sandboxes ne sont pas toujours dans le chart : le produit ou l'utilisateur peut en choisir à l'exécution. Sans Internet, chacune doit être copiée dans le registry interne à l'avance."
+  - q: "Chaque création de sandbox fait une requête au registry, même quand l'image est déjà sur le nœud. Le registry du client sature aux heures de pointe. Quel réglage regardes-tu ?"
+    choix:
+      - "`imagePullPolicy: Always` sur les pods sandbox"
+      - "L'`overhead` de la RuntimeClass"
+      - "La ResourceQuota du namespace"
+    bonne: 0
+    explication: "`Always` interroge le registry à chaque création de pod. Pour des milliers de sandboxes par jour, ça ralentit le démarrage et charge le registry. Un tag fixe avec `IfNotPresent` évite la requête."
+  - q: "Le client refuse tout DaemonSet privilégié et ne configure pas ses nœuds lui-même. Ses nœuds n'ont que runc. Quelle conséquence annonces-tu ?"
+    choix:
+      - "Le chart installe gVisor à la place"
+      - "Les sandboxes démarrent plus lentement"
+      - "Impossible d'installer gVisor ou Kata : il faut une autre voie, comme un node pool fourni par le cloud"
+    bonne: 2
+    explication: "Installer un runtime, c'est écrire sur les nœuds et redémarrer containerd. Sans DaemonSet privilégié ni action du client, personne ne peut le faire. Reste une option comme GKE Sandbox, où le fournisseur prépare les nœuds."
+---
+
+<Idee>
+Avant d'installer des sandboxes chez un client, on vérifie quatre choses : **les nœuds** (KVM, gVisor), **les droits** (DaemonSet privilégié, mode privilégié), **les images** (registry, air-gap) et **le réseau** (egress, proxy). Chaque réponse manquante casse quelque chose.
+</Idee>
+
+<Analogie>
+C'est la **visite technique avant le chantier** : le terrain est-il constructible (KVM) ? A-t-on le droit d'entrer dans les locaux techniques (DaemonSet) ? Les matériaux sont-ils livrés sur place (registry) ? Par où passent les livraisons (egress) ?
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Les nœuds :: KVM pour Kata, ou gVisor installable. Sinon la RuntimeClass ne mène nulle part. :: Q, Q>N, N
+  %% scene: Les droits :: Peut-on poser un DaemonSet privilégié sur les nœuds ? Le mode privilégié est-il accepté ? :: Q>D, D
+  %% scene: Les images :: Registry, secret de pull, et toutes les images copiées, même celles choisies à l'exécution. :: Q>I, I
+  %% scene: Le réseau :: Quelle politique d'egress, quel proxy ? Ensuite seulement, on installe. :: Q>R, R, R>GO, GO
+  Q["<b>Visite chez le client</b><br/>avant d'installer"]:::ext --> N["<b>Les nœuds</b><br/>KVM, gVisor ?"]:::regle
+  Q --> D["<b>Les droits</b><br/>DaemonSet, privilégié ?"]:::regle
+  Q --> I["<b>Les images</b><br/>registry, air-gap ?"]:::regle
+  Q --> R["<b>Le réseau</b><br/>egress, proxy ?"]:::regle
+  N ~~~ I
+  D ~~~ R
+  R --> GO["<b>On installe</b><br/>tout est vérifié ✔"]:::cible
+```
+
+## Question, et ce qui casse sinon
+
+| Question | Sans réponse |
+|---|---|
+| Les nœuds ont-ils KVM, ou gVisor ? | ✘ RuntimeClass inutilisable |
+| Peut-on déployer un DaemonSet privilégié ? | ✘ impossible de configurer les nœuds |
+| Le mode privilégié ou FUSE est-il accepté ? | ✘ synchronisation des fichiers, plus lente |
+| Quel registry, quel secret de pull ? | ✘ `ImagePullBackOff` |
+| Toutes les images sont-elles copiées, même celles ajoutées à l'exécution ? | ✘ client air-gapped bloqué |
+| Quelle politique d'egress ? | ✘ la sandbox ne joint pas son proxy, ou joint Internet |
+| Un cluster dédié aux sandboxes ? | ✘ le cluster applicatif sous pression |
+
+<Piege>
+`imagePullPolicy: Always` interroge le registry **à chaque création** de sandbox : démarrage plus lent, registry chargé, et toutes les sandboxes échouent s'il tombe. Préfère un tag fixe avec `IfNotPresent`.
+</Piege>
+
+<Terrain>
+Pose ces questions dans le même document que celles du reste de la plateforme (étape 10). La réponse sur KVM décide souvent à elle seule entre gVisor et Kata.
+</Terrain>
+
+<Retenir>
+Il faut vérifier les nœuds, les droits, les images et le réseau avant d'installer quoi que ce soit. Une question oubliée se découvre le jour J, en `ContainerCreating` ou en `ImagePullBackOff`.
+</Retenir>

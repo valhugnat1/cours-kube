@@ -1,0 +1,86 @@
+---
+titre: "Le mode privilégié et FUSE"
+etape: 26
+ordre: 3
+objectif: "Dire ce qu'ouvre privileged: true, pourquoi FUSE le demande souvent, et proposer l'alternative sans privilège."
+commandes:
+  - c: "kubectl get ns <ns> --show-labels"
+    d: "le niveau Pod Security du namespace (enforce=restricted…)"
+quiz:
+  - q: "Ton produit monte les fichiers de l'utilisateur dans la sandbox par FUSE et demande `privileged: true`. L'équipe sécurité du client refuse. Que proposes-tu ?"
+    choix:
+      - "Retirer seulement `CAP_SYS_ADMIN` et garder le mode privilégié"
+      - "Passer la sandbox en `hostNetwork` pour contourner le montage"
+      - "La synchronisation des fichiers : copier au démarrage, rapatrier à la fin, sans aucun privilège"
+    bonne: 2
+    explication: "La synchronisation est plus lente mais ne demande aucun droit particulier. Garder le mode privilégié, même réduit, reste un accès quasi root au nœud."
+  - q: "Pourquoi un conteneur privilégié est-il presque un accès root au nœud ?"
+    choix:
+      - "Il voit tous les devices du nœud et peut faire des montages, donc monter le disque du nœud"
+      - "Il tourne avec l'utilisateur root dans l'image"
+      - "Il a un CPU réservé sur le nœud"
+    bonne: 0
+    explication: "Le mode privilégié rend toutes les capabilities, le `/dev` complet et le droit de monter. Avec ça, on monte le disque du nœud et on le modifie. Être root dans l'image, sans privilège, ne suffit pas."
+  - q: "Ton chart crée la sandbox avec `privileged: true` dans un namespace où Pod Security est en `restricted`. Que se passe-t-il ?"
+    choix:
+      - "Le pod démarre, avec un avertissement dans les events"
+      - "Le pod est refusé à la création"
+      - "Le pod démarre sans le mode privilégié"
+    bonne: 1
+    explication: "Pod Security Admission en mode `enforce` refuse le pod dès l'appel à l'API. Il ne le corrige pas en silence. Le niveau `baseline` le refuse aussi."
+---
+
+<Idee>
+`privileged: true` rend au conteneur presque tous les droits sur le serveur : tous les périphériques, les montages, aucun filtre. **FUSE**, qui monte des fichiers distants comme un dossier, le demande souvent. Sans privilège, on **synchronise** les fichiers à la place.
+</Idee>
+
+<Analogie>
+Le mode privilégié, c'est donner à l'inconnu les **clés du local technique** : compteurs, colonnes, tableau électrique. FUSE, c'est un **branchement direct sur la colonne** pour faire arriver ses cartons. La synchronisation, c'est **livrer les cartons par la porte** : plus lent, sans clé.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Le besoin :: La sandbox doit accéder aux fichiers de l'utilisateur, stockés ailleurs. :: F
+  %% scene: Par FUSE :: Monter les fichiers comme un dossier demande /dev/fuse et le droit de monter : souvent le mode privilégié. :: F>FU, FU, !FU>P, !P
+  %% scene: Le prix :: Un pod privilégié peut monter le disque du nœud. Le règlement Pod Security le refuse en baseline et restricted. :: !P
+  %% scene: Par synchronisation :: On copie les fichiers dans la sandbox au démarrage et on rapatrie les résultats. Aucun privilège. :: F>SY, SY, SY>OK, OK
+  F["<b>Fichiers de l'utilisateur</b><br/>bucket, espace partagé"]:::ext --> FU["<b>Montage FUSE</b><br/>/dev/fuse, CAP_SYS_ADMIN"]:::regle
+  F --> SY["<b>Synchronisation</b><br/>copie au démarrage"]:::regle
+  FU --> P["<b>privileged: true</b><br/>quasi root sur le nœud ✘"]:::ko
+  SY --> OK["<b>Sandbox sans privilège</b><br/>plus lente au départ ✔"]:::cible
+```
+
+## Ce que `privileged: true` ouvre
+
+- **Toutes les capabilities**, dont `CAP_SYS_ADMIN`.
+- **Tous les devices** du nœud : le `/dev` complet, disques compris.
+- Les **montages**, avec seccomp et AppArmor ou SELinux relâchés.
+
+Avec ça, on monte le disque du nœud et on le modifie. Les murs de la leçon 2 tombent.
+
+<Compare>
+<Cas ton="ko" titre="Montage FUSE">
+
+- Fichiers à la demande
+- Rapide à l'usage
+- Privilège requis
+
+</Cas>
+<Cas ton="ok" titre="Synchronisation">
+
+- Copie au démarrage
+- Plus lente au départ
+- Aucun privilège
+
+</Cas>
+</Compare>
+
+Avec gVisor ou Kata (leçon 5), le privilège s'applique à l'intérieur du nouveau mur, pas au noyau du nœud : le risque change de nature. Ce que chaque runtime accepte pour FUSE dépend de sa version : à vérifier.
+
+<Terrain>
+L'équipe sécurité du client refuse presque toujours le mode privilégié pour du code non fiable, et Pod Security en `baseline` ou `restricted` le bloque de toute façon. Arrive avec l'alternative sans privilège déjà prête.
+</Terrain>
+
+<Retenir>
+Le mode privilégié est presque un accès root au nœud. Si ton produit en a besoin, c'est un compromis à faire valider par écrit, avec la synchronisation en face.
+</Retenir>

@@ -1,0 +1,72 @@
+---
+titre: "RuntimeClass : choisir le mur, pod par pod"
+etape: 26
+ordre: 6
+objectif: "Lire une RuntimeClass (handler, overhead, scheduling) et reconnaître un pod bloqué par un runtime absent du nœud."
+commandes:
+  - c: "kubectl get runtimeclass"
+    d: "les classes disponibles et leur handler"
+  - c: "kubectl describe pod <pod>"
+    d: "les events : FailedCreatePodSandBox si le runtime manque"
+  - c: "kubectl get nodes -L sandbox"
+    d: "quels nœuds portent le label du node pool sandbox"
+quiz:
+  - q: "Une sandbox reste en `ContainerCreating`. L'event dit `no runtime for \"runsc\" is configured`. Le pod est sur un nœud du pool applicatif. Quelle est la cause la plus probable ?"
+    choix:
+      - "L'image de la sandbox est introuvable dans le registry"
+      - "Le quota du namespace est atteint"
+      - "La RuntimeClass n'a pas de `scheduling` : le pod a atterri sur un nœud sans gVisor"
+    bonne: 2
+    explication: "Le message vient de containerd : ce nœud ne connaît pas le handler `runsc`. Sans `nodeSelector` dans la RuntimeClass, rien n'envoie le pod vers les nœuds équipés. Un problème d'image donnerait `ImagePullBackOff`, un quota bloquerait avant la création."
+  - q: "Les sandboxes Kata se tassent trop sur les nœuds et finissent par manquer de mémoire, alors que la somme de leurs requests tient. Quel champ de la RuntimeClass manque probablement ?"
+    choix:
+      - "`overhead`, qui ajoute la mémoire de la VM aux requests du pod"
+      - "`handler`, qui nomme le runtime"
+      - "`tolerations`, qui autorise le taint du pool"
+    bonne: 0
+    explication: "Chaque VM Kata consomme de la mémoire en plus des conteneurs. `overhead` l'ajoute aux requests pour le scheduling et les quotas. Sans lui, le scheduler place plus de pods que le nœud n'en supporte."
+  - q: "Pourquoi mettre un taint sur le node pool des sandboxes, en plus du label ?"
+    choix:
+      - "Pour que les sandboxes puissent démarrer plus vite"
+      - "Pour empêcher les autres pods de la plateforme d'y atterrir"
+      - "Parce que la RuntimeClass refuse les nœuds sans taint"
+    bonne: 1
+    explication: "Le label attire les sandboxes, via le `nodeSelector` de la RuntimeClass. Le taint repousse tout le reste. Seuls les pods qui ont la toleration, ajoutée par la RuntimeClass, y vont."
+---
+
+<Idee>
+Une **RuntimeClass** donne un nom Kubernetes à un runtime installé sur les nœuds. Le pod la choisit avec un seul champ, `runtimeClassName`. Elle peut aussi l'envoyer vers les bons nœuds et compter ce que le runtime consomme en plus.
+</Idee>
+
+<Analogie>
+La RuntimeClass est la **case cochée sur le bon de commande** : « appartement à sas ». Elle nomme le sous-traitant (`handler`), ajoute les **charges** de ce logement (`overhead`) et précise « seulement dans les **immeubles équipés** » (`scheduling`).
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Le pod choisit :: La sandbox demande runtimeClassName: gvisor. C'est tout ce que le pod dit. :: P, P>RC, RC
+  %% scene: La classe complète :: La RuntimeClass ajoute son nodeSelector, sa toleration et son overhead au pod. :: RC
+  %% scene: Le bon nœud :: Le scheduler l'envoie sur le pool sandbox, où containerd connaît le handler runsc. Le pod démarre. :: RC>N1, N1
+  %% scene: Sans scheduling :: Sans nodeSelector, le pod peut atterrir sur un nœud sans gVisor : ContainerCreating, FailedCreatePodSandBox. :: !RC>N2, !N2
+  P["<b>Pod sandbox</b><br/>runtimeClassName: gvisor"]:::cible --> RC["<b>RuntimeClass gvisor</b><br/>handler: runsc"]:::regle
+  RC -->|"nodeSelector sandbox=gvisor"| N1["<b>Pool sandbox</b><br/>runsc installé ✔"]:::moteur
+  RC -.->|"sans scheduling"| N2["<b>Pool applicatif</b><br/>runc seulement ✘"]:::ko
+```
+
+## Trois champs qui comptent
+
+| Champ | Ce qu'il fait |
+|---|---|
+| `handler` | ✔ relie au runtime déclaré sur le nœud |
+| `overhead` | ✔ compte la VM ou le Sentry dans le scheduling et les quotas |
+| `scheduling` | ✔ envoie le pod vers les nœuds équipés |
+
+Le schéma classique : un **node pool dédié aux sandboxes**, avec un label (il attire les sandboxes) et un taint `NoSchedule` (il repousse le reste).
+
+<Piege>
+Une RuntimeClass qui pointe vers des nœuds où le runtime n'est pas installé : pod en `ContainerCreating` ou en erreur au démarrage, event `FailedCreatePodSandBox`. Lis les events, puis `kubectl get nodes -L sandbox`.
+</Piege>
+
+<Retenir>
+La RuntimeClass choisit le mur, pod par pod, parmi ceux que les nœuds ont. Son `scheduling` doit envoyer le pod là où ce mur existe.
+</Retenir>

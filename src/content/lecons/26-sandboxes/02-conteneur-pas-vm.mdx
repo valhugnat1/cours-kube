@@ -1,0 +1,95 @@
+---
+titre: "Un conteneur n'est pas une VM"
+etape: 26
+ordre: 2
+objectif: "Dire ce que règlent namespaces, cgroups, seccomp et capabilities, et pourquoi le noyau partagé est la limite d'un conteneur."
+commandes:
+  - c: "kubectl exec <pod> -- uname -r"
+    d: "la version du noyau vue depuis le pod : celle du nœud"
+quiz:
+  - q: "Une faille du noyau Linux est publiée. Elle s'exploite par un appel système autorisé par le profil seccomp par défaut. Sur un nœud qui fait tourner 40 conteneurs runc, qui est exposé ?"
+    choix:
+      - "Seulement le conteneur qui l'exploite, grâce aux namespaces"
+      - "Tous les conteneurs du nœud, et le nœud lui-même : le noyau est commun"
+      - "Personne, les cgroups bloquent l'exploitation"
+    bonne: 1
+    explication: "Les namespaces changent ce que le processus voit, pas le noyau qui traite ses appels. Un seul noyau pour tout le nœud : sa faille ouvre la porte à tout ce qui tourne dessus."
+  - q: "Un pod dépasse sa limite mémoire et finit `OOMKilled`. Quel mécanisme a agi ?"
+    choix:
+      - "Les cgroups"
+      - "seccomp"
+      - "Les namespaces"
+    bonne: 0
+    explication: "Les cgroups règlent ce que le processus consomme : CPU, mémoire, nombre de processus. seccomp filtre les appels système, les namespaces règlent ce qu'il voit."
+  - q: "Un client dit : « Nos conteneurs sont aussi étanches que des VM, on peut y lancer le code de l'agent. » Quelle est la différence qui compte ?"
+    choix:
+      - "Une VM a plus de mémoire réservée"
+      - "Une VM démarre plus lentement"
+      - "Une VM a son propre noyau ; un conteneur partage celui du nœud"
+    bonne: 2
+    explication: "C'est la frontière qui compte face à du code hostile. Dans une VM, le code parle à son propre noyau. Dans un conteneur, il parle directement au noyau du nœud, partagé par tous."
+---
+
+<Idee>
+Un conteneur est un **processus ordinaire** du serveur, à qui le noyau cache le reste et retire des droits. Il ne voit que lui, mais il parle au **même noyau** que tous les autres. Une VM, elle, a son propre noyau.
+</Idee>
+
+<Analogie>
+Dans l'immeuble, chaque **appartement** a ses murs (ce qu'on voit), ses **compteurs** (ce qu'on consomme) et un **règlement** qui interdit certains robinets. Mais la **plomberie** est commune : une fuite dans la colonne inonde tous les étages.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: Trois appartements :: Trois conteneurs sur le même nœud. Chacun ne voit que ses processus et ses fichiers. :: C1, C2, C3
+  %% scene: Le noyau commun :: Chaque appel système, de chacun, est traité par le même noyau : celui du nœud. :: C1>K, C2>K, C3>K, K
+  %% scene: Une faille :: Le conteneur 1 exploite une faille du noyau par un appel autorisé. :: !C1>K, !K
+  %% scene: Tout l'immeuble :: Le noyau compromis donne accès au nœud et aux deux autres conteneurs. :: !K>N, !N, !C2, !C3
+  C1["<b>Conteneur 1</b><br/>code de l'agent"]:::cible --> K["<b>Noyau du nœud</b><br/>un seul pour tous"]:::moteur
+  C2["<b>Conteneur 2</b><br/>api"]:::cible --> K
+  C3["<b>Conteneur 3</b><br/>autre tenant"]:::cible --> K
+  C1 ~~~ C3
+  K --> N["<b>Le nœud</b><br/>disques, secrets, kubelet"]
+```
+
+## Quatre mécanismes, un noyau
+
+| Mécanisme | Ce qu'il règle | Dans l'immeuble |
+|---|---|---|
+| Namespaces | Ce que le processus **voit** | Les murs |
+| cgroups | Ce qu'il **consomme** | Les compteurs |
+| seccomp, capabilities | Ce qu'il peut **demander** au noyau | Le règlement des robinets |
+
+## Ce qui est isolé, ce qui ne l'est pas
+
+| Cas | Conteneur runc |
+|---|---|
+| Voir les processus d'un voisin | ✔ isolé (namespaces) |
+| Prendre toute la mémoire du nœud | ✔ isolé (cgroups) |
+| Appels système rares et dangereux | ✔ en partie bloqués (seccomp) |
+| Une faille du noyau | ✘ le noyau est partagé |
+| Une faille du runtime `runc` (il y en a eu) | ✘ accès au nœud |
+
+<Compare>
+<Cas titre="Conteneur">
+
+- Un processus du nœud
+- Noyau partagé
+- Démarrage immédiat
+
+</Cas>
+<Cas titre="Machine virtuelle">
+
+- Un système complet
+- Son propre noyau
+- Plus lourde
+
+</Cas>
+</Compare>
+
+<Piege>
+Croire qu'un `docker run` est aussi étanche qu'une VM. C'est assez pour ton application, que tu connais. Pas pour du code qu'un attaquant peut choisir.
+</Piege>
+
+<Retenir>
+Une faille du noyau touche tous les conteneurs du nœud. Face à du code hostile, les murs d'un conteneur ne suffisent pas : il faut changer de mur.
+</Retenir>

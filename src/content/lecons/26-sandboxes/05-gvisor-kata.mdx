@@ -1,0 +1,88 @@
+---
+titre: "gVisor et Kata : deux murs différents"
+etape: 26
+ordre: 5
+objectif: "Comparer runc, gVisor et Kata sur l'isolation, le démarrage, les prérequis et le coût, et dire lequel proposer par défaut."
+quiz:
+  - q: "Un client sur GKE, VM ordinaires, sans bare metal, veut isoler le code de l'agent dès ce mois-ci. Que proposes-tu d'abord ?"
+    choix:
+      - "Kata avec Firecracker sur les nœuds actuels"
+      - "gVisor, via GKE Sandbox sur un node pool dédié"
+      - "runc avec un profil seccomp plus strict"
+    bonne: 1
+    explication: "gVisor n'a aucun prérequis matériel et GKE l'intègre. Kata demande KVM : bare metal ou virtualisation imbriquée, pas acquis sur des VM ordinaires. Un seccomp plus strict garde le noyau partagé."
+  - q: "Un client on-prem a des serveurs bare metal et exige l'isolation la plus forte possible entre tenants. Quel runtime, et quel coût annonces-tu ?"
+    choix:
+      - "gVisor, avec des I/O plus rapides que runc"
+      - "runc, puisque le bare metal isole déjà"
+      - "Kata, avec de la mémoire en plus par pod pour chaque VM"
+    bonne: 2
+    explication: "Kata donne une micro-VM par pod, avec son propre noyau : la frontière la plus forte. Le bare metal fournit KVM. Le prix : chaque VM consomme de la mémoire et démarre plus lentement."
+  - q: "Après le passage sous gVisor, un traitement qui lit des milliers de petits fichiers devient nettement plus lent. Est-ce attendu ?"
+    choix:
+      - "Oui : les appels système et les I/O passent par le noyau en espace utilisateur"
+      - "Non : gVisor est plus rapide que runc sur les fichiers"
+      - "Non : c'est forcément un problème de disque du nœud"
+    bonne: 0
+    explication: "Le Sentry de gVisor traite lui-même les appels système, et les accès fichiers passent par un composant intermédiaire. C'est le prix de l'isolation : les I/O sont plus lentes."
+---
+
+<Idee>
+**gVisor** place un faux noyau, écrit comme un programme ordinaire, entre le code et le vrai noyau : il filtre tout. **Kata** lance une **petite VM par pod**, avec son propre noyau. gVisor est le plus simple à déployer ; Kata isole le plus fort.
+</Idee>
+
+<Analogie>
+**gVisor**, c'est un appartement avec un **sas et un concierge** : chaque demande à la plomberie passe par lui, et il n'en laisse passer qu'une poignée. **Kata**, c'est une **maison individuelle** sur le même terrain : sa propre plomberie. Mais il faut un **terrain constructible** : KVM.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: runc :: Le code parle directement au noyau du nœud. Aucun intermédiaire. :: R, R>K
+  %% scene: gVisor :: Les appels système vont au Sentry, un noyau en espace utilisateur. Il n'en transmet qu'un petit nombre, filtré, au vrai noyau. :: G, G>S, S, S>K
+  %% scene: Kata :: Le code tourne dans une micro-VM, avec son noyau. Seul l'hyperviseur parle au nœud, par une interface étroite. :: KA, KA>V, V, V>K
+  %% scene: Le nœud :: Trois murs, un même noyau du nœud en dessous. Plus le chemin est long, plus l'isolation est forte et plus il coûte. :: K
+  R["<b>runc</b><br/>conteneur classique"]:::cible --> K["<b>Noyau du nœud</b>"]:::moteur
+  R ~~~ G
+  R ~~~ KA
+  G["<b>gVisor</b><br/>runsc"]:::cible --> S["<b>Sentry</b><br/>noyau en espace utilisateur"]:::moteur
+  S --> K
+  KA["<b>Kata</b><br/>un pod = une VM"]:::cible --> V["<b>Hyperviseur</b><br/>QEMU, Firecracker…"]:::moteur
+  V --> K
+```
+
+## Le face-à-face
+
+| | runc | gVisor | Kata |
+|---|---|---|---|
+| Isolation | ✘ noyau partagé | ✔ noyau filtré | ✔✔ noyau dédié |
+| Démarrage | ✔ immédiat | ✔ proche de runc | ✘ plus lent (VM) |
+| Prérequis | ✔ aucun | ✔ binaires seuls | ✘ KVM |
+| Coût | ✔ aucun | ✘ I/O plus lentes | ✘ mémoire par VM |
+| GPU | ✔ | ✘ partiel (NVIDIA) | ✘ passthrough complexe |
+
+FUSE et GPU dépendent du runtime et de sa version : à vérifier pour chaque client.
+
+<Compare>
+<Cas titre="gVisor">
+
+- Aucun matériel spécial
+- Intégré à GKE
+- I/O plus lentes
+
+</Cas>
+<Cas titre="Kata">
+
+- Une micro-VM par pod
+- Bare metal ou imbriqué
+- Mémoire en plus
+
+</Cas>
+</Compare>
+
+<Terrain>
+Sur GKE, gVisor s'appelle **GKE Sandbox** : un node pool dédié (pas celui par défaut) et `runtimeClassName: gvisor`. Pour Kata sur un cloud, demande si les instances offrent la **virtualisation imbriquée** ; sinon, il faut du bare metal.
+</Terrain>
+
+<Retenir>
+gVisor est le choix facile par défaut ; Kata est le plus fort, mais il a besoin de nœuds compatibles. Le bon mur dépend d'abord des nœuds du client.
+</Retenir>

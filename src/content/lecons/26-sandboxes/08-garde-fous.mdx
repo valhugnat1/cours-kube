@@ -1,0 +1,100 @@
+---
+titre: "Les garde-fous Kubernetes autour des sandboxes"
+etape: 26
+ordre: 8
+objectif: "Citer les cinq garde-fous d'un namespace de tenant et dire ce que chacun empêche, egress et metadata compris."
+commandes:
+  - c: "kubectl get netpol,resourcequota,limitrange -n <ns>"
+    d: "les garde-fous posés sur le namespace d'un tenant"
+  - c: "kubectl auth can-i create pods -n <ns> --as=system:serviceaccount:<ns>:<sa>"
+    d: "ce qu'un compte de service a le droit de faire"
+quiz:
+  - q: "Le namespace d'un tenant a une NetworkPolicy qui bloque tout le trafic entrant. Sur GCP, une sandbox interroge `169.254.169.254`. Que se passe-t-il ?"
+    choix:
+      - "Rien : la policy bloque déjà tout le trafic"
+      - "La requête passe : la policy ne bloque que l'entrée, et la sandbox peut obtenir des identifiants du cloud"
+      - "Le CNI bloque toujours cette adresse par défaut"
+    bonne: 1
+    explication: "Une policy `Ingress` ne dit rien de la sortie. Il faut une politique `Egress` par défaut. L'endpoint de metadata du cloud est la cible classique : il peut donner les identifiants du nœud ou de son compte de service."
+  - q: "Un tenant lance 2 000 sandboxes d'un coup et le cluster de data plane n'a plus de place pour les autres. Quel garde-fou manquait ?"
+    choix:
+      - "Une ResourceQuota sur le namespace du tenant"
+      - "Une NetworkPolicy egress"
+      - "Pod Security en `restricted`"
+    bonne: 0
+    explication: "La ResourceQuota plafonne CPU, mémoire et nombre de pods par namespace. La NetworkPolicy règle le réseau, Pod Security les droits du pod : aucun ne compte les pods."
+  - q: "Tu poses une NetworkPolicy `default-deny` en egress, mais la sandbox joint toujours Internet. Qu'est-ce que tu vérifies d'abord ?"
+    choix:
+      - "La version de gVisor"
+      - "Le profil seccomp du pod"
+      - "Que le CNI du cluster applique bien les NetworkPolicies"
+    bonne: 2
+    explication: "Rappel de l'étape 4 : une NetworkPolicy est une règle écrite. Si le CNI ne l'applique pas, elle ne fait rien, en silence. C'est la première chose à vérifier."
+  - q: "Pourquoi régler `automountServiceAccountToken: false` sur les pods sandbox ?"
+    choix:
+      - "Pour accélérer le démarrage du pod"
+      - "Pour que le code de l'agent n'ait pas de jeton pour appeler l'API Kubernetes"
+      - "Parce que gVisor refuse les volumes de jetons"
+    bonne: 1
+    explication: "Sans ce réglage, le pod reçoit un jeton de son compte de service. Le code hostile pourrait s'en servir pour appeler l'API du cluster, avec les droits de ce compte."
+---
+
+<Idee>
+Le runtime isole la sandbox du nœud. Le reste, c'est le cluster qui le garantit, namespace par namespace : des **droits limités**, des **quotas**, un **réseau fermé par défaut**, surtout en sortie, et un **règlement** qui refuse les pods dangereux.
+</Idee>
+
+<Analogie>
+Chaque locataire a un **badge** limité à son étage (RBAC), un **quota** de logements et une taille maximale (quotas), des **portes extérieures fermées** par défaut (NetworkPolicy), et un **règlement d'urbanisme** à l'entrée (Pod Security). Le **local du gardien**, avec les clés de tout l'immeuble, est l'endpoint de metadata.
+</Analogie>
+
+```mermaid
+flowchart TD
+  %% scene: La sandbox :: Le code de l'agent tourne dans le namespace tenant-acme. On regarde ce qu'il peut atteindre. :: SB
+  %% scene: Son proxy :: Seul ce qui est ouvert passe : le DNS et le proxy prévu pour sortir. :: SB>PX, PX
+  %% scene: Les voisins :: Le namespace d'un autre tenant : bloqué par la politique par défaut. :: !SB>VO, VO
+  %% scene: La metadata :: L'endpoint 169.254.169.254 donnerait les identifiants du cloud. Il doit être bloqué en egress. :: !SB>MD, MD
+  %% scene: Internet :: Sortir sans passer par le proxy : bloqué aussi. :: !SB>IN, IN
+  SB["<b>Sandbox</b><br/>ns tenant-acme"]:::cible --> PX["<b>Proxy et DNS</b><br/>seuls ouverts ✔"]:::moteur
+  SB -.->|"✘"| VO["<b>ns tenant-globex</b><br/>autre tenant"]
+  SB -.->|"✘"| MD["<b>169.254.169.254</b><br/>metadata du cloud"]:::ext
+  SB -.->|"✘"| IN["<b>Internet</b><br/>en direct"]:::ext
+  PX ~~~ MD
+  VO ~~~ IN
+```
+
+## Cinq garde-fous par namespace de tenant
+
+| Garde-fou | Ce qu'il empêche |
+|---|---|
+| RBAC limité au namespace | ✘ créer des pods ailleurs ; pas de jeton d'API dans la sandbox |
+| ResourceQuota | ✘ un tenant qui remplit le cluster |
+| LimitRange | ✘ un pod sans limites ou démesuré |
+| NetworkPolicy par défaut, egress compris | ✘ joindre voisins, services internes, metadata, Internet |
+| Pod Security Admission | ✘ un pod privilégié ou monté sur le nœud |
+
+Les pods sandbox n'ont pas besoin de parler à l'API Kubernetes : `automountServiceAccountToken: false` leur retire le jeton.
+
+<Compare>
+<Cas ton="ko" titre="Ingress seul">
+
+- L'entrée est fermée
+- La sortie est ouverte
+- Metadata joignable
+
+</Cas>
+<Cas ton="ok" titre="Ingress et egress">
+
+- Tout fermé par défaut
+- Proxy et DNS ouverts
+- Metadata bloquée
+
+</Cas>
+</Compare>
+
+<Piege>
+Une NetworkPolicy ne fait rien si le CNI ne l'applique pas (étape 4). Teste-la depuis une sandbox avant de la déclarer en place.
+</Piege>
+
+<Retenir>
+Le runtime protège le nœud ; RBAC, quotas, NetworkPolicy et Pod Security protègent les tenants les uns des autres. Et on ferme d'abord l'egress, metadata du cloud comprise.
+</Retenir>
