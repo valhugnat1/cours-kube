@@ -55,16 +55,7 @@ flowchart TD
 
 ## La liste, sur le nœud
 
-Chaque runtime est déclaré dans la configuration de containerd, avec un nom (le **handler**) et un type de shim :
-
-```toml
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.runsc]
-  runtime_type = "io.containerd.runsc.v1"   # containerd-shim-runsc-v1
-[plugins."io.containerd.grpc.v1.cri".containerd.runtimes.kata]
-  runtime_type = "io.containerd.kata.v2"    # containerd-shim-kata-v2
-```
-
-Avec containerd 2.x (format `version = 3`), le chemin commence par `plugins."io.containerd.cri.v1.runtime"`.
+Chaque runtime est déclaré dans la configuration de containerd (`config.toml`), avec un nom, le **handler**, et le shim à lancer. Un runtime absent de cette liste n'existe pas pour le nœud.
 
 ## Changer de runtime, c'est toucher le nœud
 

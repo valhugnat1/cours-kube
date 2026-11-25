@@ -6,8 +6,6 @@ objectif: "Dire ce que règlent namespaces, cgroups, seccomp et capabilities, et
 commandes:
   - c: "kubectl exec <pod> -- uname -r"
     d: "la version du noyau vue depuis le pod : celle du nœud"
-  - c: "kubectl get pod <pod> -o jsonpath='{.spec.securityContext}'"
-    d: "le profil seccomp et les réglages de sécurité du pod"
 quiz:
   - q: "Une faille du noyau Linux est publiée. Elle s'exploite par un appel système autorisé par le profil seccomp par défaut. Sur un nœud qui fait tourner 40 conteneurs runc, qui est exposé ?"
     choix:
@@ -69,7 +67,7 @@ flowchart TD
 | Prendre toute la mémoire du nœud | ✔ isolé (cgroups) |
 | Appels système rares et dangereux | ✔ en partie bloqués (seccomp) |
 | Une faille du noyau | ✘ le noyau est partagé |
-| Une faille de `runc` (CVE-2019-5736, CVE-2024-21626) | ✘ accès au nœud |
+| Une faille du runtime `runc` (il y en a eu) | ✘ accès au nœud |
 
 <Compare>
 <Cas titre="Conteneur">
